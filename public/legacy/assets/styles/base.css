@@ -265,9 +265,11 @@ header.top img.logo{
 .user-chip .u-name{font-size:0.76rem; color:var(--ink-0); font-weight:500; line-height:1.1;}
 .user-chip .u-role{font-size:0.62rem; color:var(--ink-2); line-height:1.1;}
 .logout-btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:5px;
   border:none; background:transparent; color:var(--ink-2); cursor:pointer;
   padding:6px 10px; border-radius:8px; font-size:0.72rem;
 }
+.logout-btn .icon-svg{width:0.9rem; height:0.9rem;}
 .logout-btn:hover{color:var(--crit); background:rgba(232,86,63,0.1);}
 
 /* CSS-03: NAVIGATION | HTML: .app-body, nav.sidebar, main.content */
@@ -955,6 +957,9 @@ main.content { width: 100%; }
   .weather-season .ws-text b { font-size: 0.62rem; }
   .weather-season .ws-text span { max-width: none; }
   .user-chip { padding: 3px; }
+  .logout-btn { display: inline-flex; padding: 5px; color: var(--crit); }
+  .logout-btn span { display: none; }
+  .logout-btn .icon-svg { width: 1rem; height: 1rem; }
   main.content { padding: 14px 12px 36px; }
   .grid, .two-col { gap: 14px; }
   .section-spaced, .two-col { margin-top: 14px; }
