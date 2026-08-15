@@ -76,11 +76,13 @@
         <span id="clockDate">-- --- ----</span>
       </div>
       <div class="user-chip">
-        <div class="av" id="userAvatar">JD</div>
-        <div>
+        <button class="user-details-toggle" id="userDetailsToggle" type="button" aria-expanded="false" aria-controls="userDetails" aria-label="Show user details">
+          <div class="av" id="userAvatar">JD</div>
+          <div class="user-details" id="userDetails">
           <div class="u-name" id="userName">Juan Dela Cruz</div>
           <div class="u-role" id="userRole">MDRRMO Personnel</div>
-        </div>
+          </div>
+        </button>
         <button class="logout-btn" id="logoutBtn" type="button" aria-label="Log out" title="Log out"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="m14 8 4 4-4 4"/><path d="M18 12H9"/></svg><span>Log out</span></button>
       </div>
     </div>

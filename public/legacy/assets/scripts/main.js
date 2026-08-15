@@ -13,6 +13,7 @@
   const config = window.FloodGuardConfig;
   const state = stateApi.state;
   const $ = stateApi.$;
+  let stopRealtimeTelemetry = null;
 
   if (!stateApi || !ui || !logic || !config) {
     console.error('FloodGuard: required app modules not loaded.');
@@ -259,7 +260,7 @@
     clockDate.textContent = dateFormatter.format(now);
   }
 
-  function setSensorConnectionState(connected, { label = 'Unknown device', lastConnectionAt = null, battery = '—', signal = '—' } = {}) {
+  function setSensorConnectionState(connected, { label = 'Unknown device', lastConnectionAt = null, battery = '—', signal = '—', notify = true } = {}) {
     state.sensorDevice.connected = connected;
     state.sensorDevice.lastConnectionAt = lastConnectionAt || state.sensorDevice.lastConnectionAt;
     state.sensorDevice.battery = battery;
@@ -321,7 +322,82 @@
       state.liveTelemetryActive = false;
     }
 
-    ui.toast(connected ? `Sensor connected: ${label}` : 'Sensor disconnected. Device is offline.');
+    if (notify) ui.toast(connected ? `Sensor connected: ${label}` : 'Sensor disconnected. Device is offline.');
+  }
+
+  function readRealtimeTimestamp(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return Date.now();
+  }
+
+  async function startRealtimeTelemetry() {
+    if (stopRealtimeTelemetry) return;
+
+    try {
+      const firebase = await firebaseServices();
+      const deviceRef = firebase.ref(firebase.rtdb, 'devices/FG-001');
+      stopRealtimeTelemetry = firebase.onValue(deviceRef, (snapshot) => {
+        const reading = snapshot.val();
+        const level = Number(reading && reading.levelCm);
+
+        if (!reading || !Number.isFinite(level)) {
+          state.realtimeTelemetryActive = false;
+          setSensorConnectionState(false, { label: 'No live database reading', notify: false });
+          return;
+        }
+
+        const previousLevel = state.level;
+        const timestamp = readRealtimeTimestamp(reading.updatedAt);
+        const battery = Number(reading.batteryV);
+        const signal = typeof reading.signal === 'string' && reading.signal.trim() ? reading.signal.trim() : 'Unknown';
+        const online = reading.isOnline !== false;
+
+        state.level = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
+        state.target = state.level;
+        state.lastTelemetryAt = timestamp;
+        state.liveTelemetryActive = online;
+        state.realtimeTelemetryActive = true;
+
+        if (!state.history.length || state.history[state.history.length - 1].v !== state.level) {
+          state.history.push({ t: timestamp, v: state.level });
+          if (state.history.length > 40) state.history.shift();
+        }
+
+        setSensorConnectionState(online, {
+          label: 'Firebase Realtime Database · FG-001',
+          lastConnectionAt: timestamp,
+          battery: Number.isFinite(battery) ? `${battery.toFixed(1)}V` : '—',
+          signal,
+          notify: false
+        });
+
+        $('levelValue').textContent = (state.level / 100).toFixed(2);
+        logic.updateMeta(previousLevel);
+        ui.drawTube();
+        ui.drawChartOn($('trendChart'));
+        ui.renderSourceCard();
+        ui.renderForecast();
+        if (state.currentUser) ui.renderDecisionSupport();
+      }, (error) => {
+        console.error('Realtime Database listener failed:', error);
+        state.realtimeTelemetryActive = false;
+        setSensorConnectionState(false, { label: 'Realtime Database unavailable', notify: false });
+        ui.toast('Live database connection failed. Check Firebase Realtime Database rules.');
+      });
+    } catch (error) {
+      console.error('Realtime Database setup failed:', error);
+      ui.toast('Unable to start live database monitoring.');
+    }
+  }
+
+  function stopRealtimeDatabaseTelemetry() {
+    if (stopRealtimeTelemetry) stopRealtimeTelemetry();
+    stopRealtimeTelemetry = null;
+    state.realtimeTelemetryActive = false;
   }
 
   async function connectToSensor() {
@@ -450,8 +526,26 @@
       ui.setMobileMenu(!$('sidebarMenu').classList.contains('mobile-open'));
     });
 
+    const userDetailsToggle = $('userDetailsToggle');
+    const userChip = userDetailsToggle?.closest('.user-chip');
+    const closeUserDetails = () => {
+      if (!userChip || !userDetailsToggle) return;
+      userChip.classList.remove('show-details');
+      userDetailsToggle.setAttribute('aria-expanded', 'false');
+      userDetailsToggle.setAttribute('aria-label', 'Show user details');
+    };
+    userDetailsToggle?.addEventListener('click', () => {
+      const isOpen = userChip.classList.toggle('show-details');
+      userDetailsToggle.setAttribute('aria-expanded', String(isOpen));
+      userDetailsToggle.setAttribute('aria-label', isOpen ? 'Hide user details' : 'Show user details');
+    });
+    document.addEventListener('click', (event) => {
+      if (userChip && !userChip.contains(event.target)) closeUserDetails();
+    });
+
     window.addEventListener('resize', () => {
       if (window.innerWidth > 860) ui.setMobileMenu(false);
+      if (window.innerWidth > 600) closeUserDetails();
     });
 
     document.querySelectorAll('.nav-btn').forEach((btn) => {
@@ -492,6 +586,7 @@
           uid: credential.user.uid
         };
         logic.doLogin();
+        startRealtimeTelemetry();
       } catch (error) {
         console.error('Firebase sign-in failed:', error);
         ui.toast(friendlyAuthError(error));
@@ -571,6 +666,7 @@
       try {
         const firebase = await firebaseServices();
         await firebase.signOut(firebase.auth);
+        stopRealtimeDatabaseTelemetry();
         state.currentUser = null;
         $('appShell').classList.remove('active');
         $('loginScreen').style.display = 'flex';
@@ -753,7 +849,7 @@
 
     function tick() {
       const noise = (Math.random() - 0.5) * 1.6;
-      if (!state.liveTelemetryActive || Date.now() - state.lastTelemetryAt > 10 * 60 * 1000) {
+      if (!state.realtimeTelemetryActive && (!state.liveTelemetryActive || Date.now() - state.lastTelemetryAt > 10 * 60 * 1000)) {
         state.liveTelemetryActive = false;
         state.level += (state.target - state.level) * 0.08 + noise;
       }

@@ -26,6 +26,7 @@ window.FloodGuardState = (() => {
     lastSeasonInfo: null,
     selectedRole: 'mdrrmo',
     liveTelemetryActive: false,
+    realtimeTelemetryActive: false,
     telemetrySyncing: false,
     lastTelemetryAt: 0,
     sensorDevice: {

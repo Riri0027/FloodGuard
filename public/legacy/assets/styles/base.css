@@ -255,9 +255,10 @@ header.top img.logo{
 }
 
 .user-chip{
-  display:flex; align-items:center; gap:9px; padding:5px 6px 5px 12px; border-radius:999px;
+  position:relative; display:flex; align-items:center; gap:9px; padding:5px 6px 5px 12px; border-radius:999px;
   background:var(--navy-800); border:1px solid var(--line);
 }
+.user-details-toggle{display:flex; align-items:center; gap:9px; min-width:0; padding:0; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer;}
 .user-chip .av{
   width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,var(--water),var(--gold));
   display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:700; color:#06122a;
@@ -957,6 +958,23 @@ main.content { width: 100%; }
   .weather-season .ws-text b { font-size: 0.62rem; }
   .weather-season .ws-text span { max-width: none; }
   .user-chip { padding: 3px; }
+  .user-details-toggle { padding: 2px; }
+  .user-chip .user-details { display: none; }
+  .user-chip.show-details .user-details {
+    display: block;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 350;
+    min-width: 190px;
+    padding: 10px 12px;
+    border: 1px solid var(--water);
+    border-radius: 10px;
+    background: var(--navy-800);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+  }
+  .user-chip.show-details .u-name { font-size: 0.76rem; }
+  .user-chip.show-details .u-role { margin-top: 3px; font-size: 0.64rem; }
   .logout-btn { display: inline-flex; padding: 5px; color: var(--crit); }
   .logout-btn span { display: none; }
   .logout-btn .icon-svg { width: 1rem; height: 1rem; }
