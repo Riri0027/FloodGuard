@@ -256,21 +256,26 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     `;
 
     const htmlDocument = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>FloodGuard Report</title>${reportStyles}</head><body>${reportBody}</body></html>`;
-    const blob = new Blob([htmlDocument], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // Use the Vercel/Next endpoint instead of a browser-only Blob URL. Its
+    // Content-Disposition header makes this a true download in deployments.
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = new URL('/api/download-report', window.location.origin).href;
+    form.style.display = 'none';
 
-    // Do not revoke the Blob URL immediately. Deployed browsers can begin the
-    // download after the click handler returns, so immediate revocation may
-    // result in no file being saved.
-    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const addField = (name, value) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    };
+    addField('report', htmlDocument);
+    addField('filename', filename);
+
+    document.body.appendChild(form);
+    form.submit();
+    window.setTimeout(() => form.remove(), 1000);
     return filename;
   }
 
