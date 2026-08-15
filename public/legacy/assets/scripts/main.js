@@ -740,7 +740,9 @@
 
     if (showLessBtn) {
       showLessBtn.addEventListener('click', () => {
-        state.visibleHistoryRows = Math.max(20, state.visibleHistoryRows - 10);
+        // The initial log view contains 10 rows, so "Show less" must be able
+        // to return to that baseline after the user expands the list.
+        state.visibleHistoryRows = Math.max(10, state.visibleHistoryRows - 10);
         ui.renderHistoryTable();
       });
     }
