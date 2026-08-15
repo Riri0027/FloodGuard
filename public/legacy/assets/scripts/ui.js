@@ -362,7 +362,7 @@ window.FloodGuardUI = (() => {
       `;
       body.appendChild(tr);
     });
-    $('historyCount').textContent = rows.length > 20
+    $('historyCount').textContent = rows.length > 19
       ? `Showing ${displayedRows.length} of ${rows.length} records`
       : `${rows.length} records`;
     
