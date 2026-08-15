@@ -26,8 +26,17 @@ window.FloodGuardUI = (() => {
 
   function setMobileMenu(open) {
     const menu = $('sidebarMenu');
-    $('menuToggle').setAttribute('aria-expanded', String(open));
-    $('menuToggle').setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+    const toggle = $('menuToggle');
+    const header = document.querySelector('header.top');
+    if (!menu || !toggle) return;
+
+    // Anchor the menu below the sticky header, even while the page scrolls.
+    if (open && header) {
+      document.documentElement.style.setProperty('--mobile-menu-top', `${header.getBoundingClientRect().bottom}px`);
+    }
+
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
     menu.classList.toggle('mobile-open', open);
   }
 

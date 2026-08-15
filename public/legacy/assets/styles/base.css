@@ -827,9 +827,8 @@ footer b{color:var(--ink-1);}
   .menu-toggle{display:inline-flex; margin-left:auto;}
   .view-title{order:4;}
   .top-right{order:3; width:100%; margin-left:0; justify-content:space-between;}
-  /* Keep the expanded menu above the content instead of pushing it behind it. */
-  .app-body{position:relative;}
-  nav.sidebar{display:none; position:absolute; top:0; right:12px; left:auto; z-index:300; width:min(300px, calc(100vw - 24px)); height:auto; padding:10px 12px 14px; gap:7px; border:1px solid var(--water-bright); border-radius:0 0 12px 12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-950)); box-shadow:0 18px 32px rgba(0,0,0,0.58), 0 0 0 1px rgba(58,167,214,0.16);}
+  /* Fixed overlay: the navigation is independent from content scrolling. */
+  nav.sidebar{display:none; position:fixed; top:var(--mobile-menu-top, 72px); right:12px; left:auto; z-index:300; width:min(300px, calc(100vw - 24px)); height:auto; padding:10px 12px 14px; gap:7px; border:1px solid var(--water-bright); border-radius:0 0 12px 12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-950)); box-shadow:0 18px 32px rgba(0,0,0,0.58), 0 0 0 1px rgba(58,167,214,0.16);}
   nav.sidebar.mobile-open{display:flex; flex-direction:column;}
   .nav-caption{display:block; padding:6px 4px 2px;}
   .nav-btn{width:100%; flex:0 0 auto; padding:10px 12px; white-space:normal;}
@@ -873,4 +872,118 @@ footer b{color:var(--ink-1);}
   .report-signature span { display: block; font-size: 11px; color: #666; margin-bottom: 8px; }
   .report-signature strong { display: block; font-size: 14px; font-weight: bold; margin: 48px 0 4px; }
   .report-signature small { display: block; font-size: 12px; }
+}
+
+/* CSS-11: SCREEN-SIZE SAFEGUARDS
+   These final rules keep the application usable at every viewport width,
+   including phones with dynamic browser toolbars, tablets, and wide screens. */
+:root { --topbar-height: 63px; }
+
+html { min-height: 100%; }
+body { min-width: 320px; min-height: 100dvh; }
+
+#appShell.active { min-height: 100dvh; }
+.app-body { flex: 1 1 auto; min-width: 0; }
+nav.sidebar { overflow-y: auto; overscroll-behavior: contain; }
+main.content { width: 100%; }
+
+@media (min-width: 1440px) {
+  main.content { max-width: 1680px; }
+}
+
+@media (max-width: 1100px) {
+  header.top { gap: 10px; padding-inline: 18px; }
+  .brand-sub { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  nav.sidebar { width: 190px; flex-basis: 190px; padding-inline: 10px; }
+  .nav-btn { padding: 10px; }
+}
+
+@media (max-width: 860px) {
+  body { min-width: 0; }
+  header.top { position: sticky; padding: 10px 14px; }
+  .brand-block { min-width: 0; flex: 1 1 180px; }
+  .brand-sub { max-width: 100%; }
+  .menu-toggle { flex: 0 0 auto; }
+  .top-right { min-width: 0; }
+  .weather-season { flex: 1 1 160px; }
+  .user-chip { flex: 0 1 auto; min-width: 0; }
+  .user-chip > div:not(.av) { min-width: 0; }
+  .user-chip .u-name, .user-chip .u-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  nav.sidebar { top: 0; max-height: min(70dvh, 520px); overflow-y: auto; }
+  main.content { padding: 18px 14px 46px; }
+}
+
+@media (max-width: 600px) {
+  :root { font-size: 15px; }
+  #loginScreen, #signupScreen { min-height: 100dvh; }
+  .login-card { width: 100%; max-width: 440px; }
+  /* Compact, two-row mobile header: branding first, live details second. */
+  header.top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 7px 8px;
+    padding: 8px 12px;
+  }
+  header.top img.logo { grid-column: 1; grid-row: 1; }
+  .brand-block { flex-basis: 160px; }
+  .brand-block { grid-column: 2; grid-row: 1; }
+  .menu-toggle { grid-column: 3; grid-row: 1; }
+  .brand-sub { display: none; }
+  .view-title { display: none; }
+  .top-right {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+  /* Keep the live Manila time available on mobile instead of hiding it. */
+  .clock {
+    display: block;
+    min-width: 0;
+    padding: 5px 7px;
+    font-size: 0.58rem;
+    text-align: left;
+  }
+  .clock b { font-size: 0.7rem; white-space: nowrap; }
+  .clock span { display: none; }
+  .status-pill { white-space: nowrap; }
+  .weather-season { min-width: 0; max-width: none; padding: 5px 7px; }
+  .weather-season .ws-icon { font-size: 1rem; width: 18px; }
+  .weather-season .ws-text b { font-size: 0.62rem; }
+  .weather-season .ws-text span { max-width: none; }
+  .user-chip { padding: 3px; }
+  main.content { padding: 14px 12px 36px; }
+  .grid, .two-col { gap: 14px; }
+  .section-spaced, .two-col { margin-top: 14px; }
+  .card { padding: 15px; border-radius: 14px; }
+  .role-hero { padding: 16px; margin-bottom: 14px; border-radius: 14px; }
+  .hero-stats, .stat-row, .gauge-meta { grid-template-columns: 1fr; }
+  .weather-summary { padding: 12px; }
+  .weather-current { align-items: flex-start; padding: 12px; }
+  .weather-big { font-size: 2.35rem; }
+  .weather-forecast { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); }
+  .weather-day { min-height: 112px; }
+  .source-primary, .forecast-headline { padding: 12px; gap: 10px; }
+  .source-primary .s-icon { flex: 0 0 auto; }
+  .forecast-metrics { grid-template-columns: 1fr; }
+  .sim-controls, .hero-actions { flex-direction: column; }
+  .sim-controls button, .hero-actions button { width: 100%; }
+  .dialog-actions, .report-modal-actions, .pdf-report-footer { flex-wrap: wrap; }
+  .dialog-actions .small-btn, .report-modal-actions .small-btn, .pdf-report-footer .small-btn { flex: 1 1 130px; }
+  .user-dialog, .report-modal, .pdf-report-modal { width: calc(100vw - 24px); }
+  .report-modal, .pdf-report-modal { height: min(90dvh, 760px); }
+  .report-modal-header, .pdf-report-header, .report-modal-body, .pdf-report-footer, .report-modal-actions { padding-inline: 16px; }
+  .pdf-report-content .official-report { padding: 24px 18px; }
+}
+
+@media (max-width: 390px) {
+  .brand-name { font-size: 0.9rem; }
+  .status-pill #connText { display: none; }
+  .status-pill { padding: 7px; }
+  .weather-season { flex-basis: 100%; }
+  .reading { font-size: 2.2rem; }
+  .threshold-legend { gap: 8px; }
 }

@@ -256,15 +256,22 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     `;
 
     const htmlDocument = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>FloodGuard Report</title>${reportStyles}</head><body>${reportBody}</body></html>`;
-    const blob = new Blob([htmlDocument], { type: 'text/html' });
+    const blob = new Blob([htmlDocument], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+
+    // Do not revoke the Blob URL immediately. Deployed browsers can begin the
+    // download after the click handler returns, so immediate revocation may
+    // result in no file being saved.
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return filename;
   }
 
   function enableExportButton(reportBody, toast) {
@@ -273,8 +280,14 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
 
     downloadBtn.hidden = false;
     downloadBtn.onclick = () => {
-      downloadReport(reportBody);
-      toast('Report downloaded.');
+      try {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = downloadReport(reportBody, `floodguard-data-report-${stamp}.html`);
+        toast(`Report download started: ${filename}`);
+      } catch (err) {
+        console.error('Report download failed', err);
+        toast('Unable to download the report. Please try again.');
+      }
     };
   }
 

@@ -456,8 +456,9 @@
 
     document.querySelectorAll('.nav-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        ui.showView(btn.dataset.view);
+        // Close first so the menu disappears immediately on page selection.
         if (window.innerWidth <= 860) ui.setMobileMenu(false);
+        ui.showView(btn.dataset.view);
       });
     });
 
