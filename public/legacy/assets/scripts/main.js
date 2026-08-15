@@ -582,7 +582,11 @@
         state.currentUser = {
           name: displayName,
           role: profile.role || 'MDRRMO Personnel',
-          roleKey: profile.roleKey || 'mdrrmo',
+          // Keep Barangay navigation restricted for legacy profiles whose
+          // role label is correct but whose stored roleKey was entered wrong.
+          roleKey: profile.roleKey === 'barangay' || profile.role === 'Barangay Official'
+            ? 'barangay'
+            : 'mdrrmo',
           uid: credential.user.uid
         };
         logic.doLogin();
