@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      // A visitor can submit only their own access request. The request cannot
+      // make itself active or choose a privileged FloodGuard role.
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.role == 'Pending approval'
+        && request.resource.data.roleKey == 'pending';
+
+      // Users can read only the profile that controls their own access.
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Approve, assign roles, or block profiles in the Firebase Console until
+      // a dedicated administrator workflow is added.
+      allow update, delete: if false;
+    }
+  }
+}

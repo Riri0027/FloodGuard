@@ -1,0 +1,6 @@
+/* The original FloodGuard interface is rendered unchanged in /legacy. */
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+}
