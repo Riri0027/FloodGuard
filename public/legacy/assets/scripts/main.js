@@ -14,6 +14,12 @@
   const state = stateApi.state;
   const $ = stateApi.$;
   let stopRealtimeTelemetry = null;
+  const WEATHER_LOCATION = {
+    label: 'Bicol Region · Bilog Falls',
+    coordinates: '13.83°N, 123.53°E',
+    latitude: 13.8333,
+    longitude: 123.5333
+  };
 
   if (!stateApi || !ui || !logic || !config) {
     console.error('FloodGuard: required app modules not loaded.');
@@ -49,12 +55,8 @@
     };
 
     try {
-      // Bilog Falls, Barangay Cabotonan, Lagonoy, Camarines Sur, Philippines
-      const lat = 13.8333;
-      const lon = 123.5333;
-
       const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=weather_code,precipitation_sum,temperature_2m_max,temperature_2m_min&temperature_unit=celsius&wind_speed_unit=kmh&timezone=Asia/Manila`
+        `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LOCATION.latitude}&longitude=${WEATHER_LOCATION.longitude}&current=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=weather_code,precipitation_sum,temperature_2m_max,temperature_2m_min&temperature_unit=celsius&wind_speed_unit=kmh&timezone=Asia/Manila`
       );
 
       if (!response.ok) throw new Error('Weather API error');
@@ -123,30 +125,14 @@
       state.lastSeasonInfo = { season, summary, cards: weatherCards, current: currentCondition };
     } catch (err) {
       console.warn('Weather API failed, using demo data:', err.message);
-      const month = new Date().toLocaleString('en-PH', {
-        timeZone: 'Asia/Manila',
-        month: 'numeric'
-      });
-      const season = Number(month) >= 5 && Number(month) <= 9 ? 'Rainy season' : Number(month) >= 10 || Number(month) <= 1 ? 'Cold season' : 'Dry season';
-      const weatherCards = [
-        { day: 'Today', icon: '🌧️', rain: '31mm', note: 'Scattered rain over the falls basin' },
-        { day: 'Tue', icon: '🌦️', rain: '18mm', note: 'Intermittent showers' },
-        { day: 'Wed', icon: '⛈️', rain: '54mm', note: 'Thunderstorm risk' },
-        { day: 'Thu', icon: '🌤️', rain: '12mm', note: 'Brief clearing' },
-        { day: 'Fri', icon: '🌧️', rain: '39mm', note: 'Moderate rainfall' },
-        { day: 'Sat', icon: '🌦️', rain: '27mm', note: 'Patchy shower bands' },
-        { day: 'Sun', icon: '🌤️', rain: '15mm', note: 'Mostly fair' }
-      ];
-      const summary = season === 'Rainy season'
-        ? 'Enhanced rainfall accumulation around the watershed.'
-        : season === 'Cold season'
-          ? 'Cooler conditions with shallow cloud cover.'
-          : 'Stable dry conditions with low rainfall risk.';
+      const season = 'Unavailable';
+      const weatherCards = [];
+      const summary = 'Live weather data is temporarily unavailable for Bicol Region.';
       state.lastSeasonInfo = {
         season,
         summary,
         cards: weatherCards,
-        current: { icon: '🌧️', description: 'Scattered rain', temperature: 27, precipitation: '1.2', wind: 12 }
+        current: null
       };
     }
 
@@ -163,7 +149,7 @@
               <div class="weather-seq">${current?.description || season}</div>
               <div class="weather-note">${current ? `${current.temperature}°C · ${current.precipitation}mm precipitation · ${current.wind} km/h wind` : summary}</div>
               <div style="font-size:0.7rem; color:#7385b3; margin-top:6px; font-family:'Roboto Mono', monospace;">
-                📍 Bilog Falls (13.83°N, 123.53°E) · ${season} · 7-day total: ${totalRain}mm
+                📍 ${WEATHER_LOCATION.label} (${WEATHER_LOCATION.coordinates}) · ${season} · 7-day total: ${totalRain}mm
               </div>
             </div>
           </div>
@@ -178,7 +164,7 @@
             `).join('')}
           </div>
           <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(36,58,114,0.3); font-size:0.65rem; color:#7385b3; font-family:'Roboto Mono', monospace;">
-            📡 Real-time forecast from Open-Meteo API · Manila timezone
+            📡 Real-time Bicol Region weather from Open-Meteo API · Manila timezone
           </div>
         </div>
       `;
