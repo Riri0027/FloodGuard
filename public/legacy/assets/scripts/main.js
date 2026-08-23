@@ -684,61 +684,6 @@
       }
     });
 
-    const addUserDialog = $('addUserDialog');
-    const addUserForm = $('addUserForm');
-    const closeAddUserDialog = () => {
-      if (!addUserDialog) return;
-      if (typeof addUserDialog.close === 'function' && addUserDialog.open) {
-        addUserDialog.close();
-      } else {
-        addUserDialog.removeAttribute('open');
-      }
-    };
-
-
-
-    $('closeAddUserDialog')?.addEventListener('click', closeAddUserDialog);
-    $('cancelAddUserDialog')?.addEventListener('click', closeAddUserDialog);
-    addUserDialog?.addEventListener('click', (event) => {
-      if (event.target === addUserDialog) closeAddUserDialog();
-    });
-
-    const openAddUserDialog_fn = () => {
-      if (!addUserDialog) return;
-      if (state.currentUser) {
-        $('newUserRoleDisplay').textContent = state.currentUser.role;
-      }
-      if (typeof addUserDialog.showModal === 'function') {
-        addUserDialog.showModal();
-      } else {
-        addUserDialog.setAttribute('open', 'open');
-      }
-    };
-    
-    $('openAddUserDialog')?.removeEventListener('click', () => {});
-    $('openAddUserDialog')?.addEventListener('click', openAddUserDialog_fn);
-
-    addUserForm?.addEventListener('submit', (event) => {
-      event.preventDefault();
-      const name = $('newUserName').value.trim();
-      const role = state.currentUser ? state.currentUser.role : 'MDRRMO Personnel';
-      const area = $('newUserArea').value.trim() || 'Barangay Cabotonan';
-      if (!name) {
-        ui.toast('Please enter the user full name.');
-        return;
-      }
-      state.users.push({
-        name,
-        role,
-        area,
-        status: 'Active'
-      });
-      addUserForm.reset();
-      closeAddUserDialog();
-      ui.renderUsers();
-      ui.toast(`User added: ${name}`);
-    });
-
     const showLessBtn = $('showLessHistoryBtn');
     const showMoreBtn = $('showMoreHistoryBtn');
 
@@ -810,7 +755,6 @@
           ui.drawChartOn($('trendChart'));
           ui.renderHistoryTable();
           logic.rebuildAlertLogTable();
-          ui.renderUsers();
           ui.renderSourceCard();
           ui.renderForecast();
           if (state.currentUser) ui.renderDecisionSupport();
@@ -844,7 +788,6 @@
     ui.renderThresholds();
     ui.renderSourceCard();
     ui.renderForecast();
-    ui.renderUsers();
     ui.drawTube();
     ui.drawChartOn($('trendChart'));
     ui.renderHistoryTable();
@@ -909,7 +852,6 @@
     stateApi.seedHistory();
     logic.rebuildAlertLogTable();
     ui.renderHistoryTable();
-    ui.renderUsers();
     ui.renderSourceCard();
     ui.renderForecast();
     ui.renderDecisionSupport();

@@ -378,35 +378,6 @@ window.FloodGuardUI = (() => {
     }
   }
 
-  function renderUsers() {
-    const body = $('usersBody');
-    if (!body) return;
-    body.innerHTML = '';
-    state.users.forEach((u, idx) => {
-      const managedRole = state.currentUser && state.currentUser.roleKey === 'barangay' ? 'Barangay Official' : 'MDRRMO Personnel';
-      if (state.currentUser && u.role !== managedRole) return;
-      const tr = document.createElement('tr');
-      const chipClass = u.role === 'Barangay Official' ? 'role-chip barangay' : 'role-chip';
-      const blocked = u.status === 'Blocked';
-      tr.innerHTML = `
-        <td>${u.name}</td>
-        <td><span class="${chipClass}">${u.role}</span></td>
-        <td>${u.area}</td>
-        <td style="color:${blocked ? '#e8563f' : '#31c48d'}">${u.status}</td>
-        <td>${blocked ? '<span style="color:#e8563f">Access revoked</span>' : `<button class="block-btn" data-idx="${idx}">Block</button>`}</td>`;
-      body.appendChild(tr);
-    });
-    body.querySelectorAll('.block-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const i = parseInt(e.target.dataset.idx, 10);
-        const u = state.users[i];
-        u.status = 'Blocked';
-        renderUsers();
-        toast('User blocked: ' + u.name + '. Access has been revoked.');
-      });
-    });
-  }
-
   return {
     toast,
     setMobileMenu,
@@ -417,7 +388,6 @@ window.FloodGuardUI = (() => {
     renderDecisionSupport,
     drawTube,
     drawChartOn,
-    renderHistoryTable,
-    renderUsers
+    renderHistoryTable
   };
 })();

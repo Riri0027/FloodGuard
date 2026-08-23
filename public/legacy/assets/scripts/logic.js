@@ -202,9 +202,6 @@ window.FloodGuardLogic = (() => {
     document.querySelectorAll('.nav-btn[data-view="historical"], .nav-btn[data-view="reports"]').forEach((button) => {
       button.hidden = barangayUser;
     });
-    $('usersHeading').childNodes[0].nodeValue = barangayUser ? 'Manage Barangay Users ' : 'Manage MDRRMO Users ';
-    $('usersSubheading').textContent = barangayUser ? 'Barangay Official accounts with system access' : 'MDRRMO Personnel accounts with system access';
-    uiApi.renderUsers();
     $('userAvatar').textContent = initials(state.currentUser.name);
     $('userName').textContent = state.currentUser.name;
     $('userRole').textContent = state.currentUser.role;
