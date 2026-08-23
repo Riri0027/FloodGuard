@@ -293,6 +293,8 @@ nav.sidebar{
 .nav-btn .ic{font-size:0.95rem; width:18px; text-align:center;}
 .nav-btn:hover{background:linear-gradient(145deg, rgba(58,167,214,0.16), rgba(21,38,85,0.86)); color:var(--ink-0);}
 .nav-btn.active{background:linear-gradient(90deg, rgba(58,167,214,0.18), transparent); color:var(--ink-0); box-shadow:inset 2px 0 0 var(--water);}
+.logout-nav-btn{display:none; margin-top:auto; color:var(--crit);}
+.logout-nav-btn:hover{color:var(--crit); background:rgba(232,86,63,0.1);}
 /* CSS-03: NAVIGATION | Barangay-only menu access and dashboard layout
    moved to barangay.css (kept together with the rest of the Barangay
    Official theme) */
@@ -835,6 +837,7 @@ footer b{color:var(--ink-1);}
   nav.sidebar.mobile-open{display:flex; flex-direction:column;}
   .nav-caption{display:block; padding:6px 4px 2px;}
   .nav-btn{width:100%; flex:0 0 auto; padding:10px 12px; white-space:normal;}
+  .logout-nav-btn{display:flex; margin-top:8px;}
 }
 @media (max-width:600px){
   .menu-toggle{width:34px; height:34px;}
@@ -975,7 +978,7 @@ main.content { width: 100%; }
   }
   .user-chip.show-details .u-name { font-size: 0.76rem; }
   .user-chip.show-details .u-role { margin-top: 3px; font-size: 0.64rem; }
-  .logout-btn { display: inline-flex; padding: 5px; color: var(--crit); }
+  .logout-btn { display: none; padding: 5px; color: var(--crit); }
   .logout-btn span { display: none; }
   .logout-btn .icon-svg { width: 1rem; height: 1rem; }
   main.content { padding: 14px 12px 36px; }

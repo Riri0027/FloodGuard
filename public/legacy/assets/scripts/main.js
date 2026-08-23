@@ -548,7 +548,7 @@
       if (window.innerWidth > 600) closeUserDetails();
     });
 
-    document.querySelectorAll('.nav-btn').forEach((btn) => {
+    document.querySelectorAll('.nav-btn[data-view]').forEach((btn) => {
       btn.addEventListener('click', () => {
         // Close first so the menu disappears immediately on page selection.
         if (window.innerWidth <= 860) ui.setMobileMenu(false);
@@ -666,7 +666,7 @@
       });
     });
 
-    $('logoutBtn').addEventListener('click', async () => {
+    const handleLogout = async () => {
       try {
         const firebase = await firebaseServices();
         await firebase.signOut(firebase.auth);
@@ -682,7 +682,10 @@
         console.error('Firebase sign-out failed:', error);
         ui.toast(friendlyAuthError(error));
       }
-    });
+    };
+
+    $('logoutBtn').addEventListener('click', handleLogout);
+    $('sidebarLogoutBtn').addEventListener('click', handleLogout);
 
     const showLessBtn = $('showLessHistoryBtn');
     const showMoreBtn = $('showMoreHistoryBtn');
