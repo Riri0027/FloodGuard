@@ -164,7 +164,7 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     </div>`;
   }
 
-  function downloadReport(reportBody, filename = 'floodguard-data-report.html') {
+  function downloadReport(reportBody, filename = 'floodguard-data-report.pdf') {
     const reportStyles = `
       <style>
         * { box-sizing: border-box; }
@@ -287,7 +287,7 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     downloadBtn.onclick = () => {
       try {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = downloadReport(reportBody, `floodguard-data-report-${stamp}.html`);
+        const filename = downloadReport(reportBody, `floodguard-data-report-${stamp}.pdf`);
         toast(`Report download started: ${filename}`);
       } catch (err) {
         console.error('Report download failed', err);
