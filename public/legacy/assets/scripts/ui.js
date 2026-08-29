@@ -45,6 +45,7 @@ window.FloodGuardUI = (() => {
     document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === key));
     $('view-' + key).classList.add('active');
     $('viewTitleText').textContent = config.VIEW_LABELS[key];
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     if (key === 'historical') {
       drawChartOn($('historyChart'));
       renderHistoryTable();

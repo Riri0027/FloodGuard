@@ -1013,3 +1013,132 @@ main.content { width: 100%; }
   .reading { font-size: 2.2rem; }
   .threshold-legend { gap: 8px; }
 }
+
+/* CSS-12: POLISHED PRODUCT FINISH | Modern motion, depth, and responsive rhythm */
+/* A slightly larger baseline improves readability for low-vision users without
+   requiring browser zoom; compact phone rules below keep the layout balanced. */
+:root { font-size: 17px; }
+
+html {
+  scroll-behavior: smooth;
+}
+
+button, input, select { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 3px solid rgba(111, 208, 242, 0.42);
+  outline-offset: 3px;
+}
+
+.nav-btn {
+  position: relative;
+  overflow: hidden;
+  transition: color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease;
+}
+.nav-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--water-bright);
+  opacity: 0;
+  transform: scaleY(.35);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.nav-btn:hover { transform: translateX(2px); }
+.nav-btn.active::after { opacity: 1; transform: scaleY(1); }
+.nav-btn.active { box-shadow: inset 0 0 0 1px rgba(111, 208, 242, 0.1), 0 8px 18px rgba(0, 0, 0, 0.16); }
+
+.card {
+  transition: border-color .24s ease, box-shadow .24s ease, transform .24s ease;
+}
+
+.role-hero {
+  position: relative;
+  overflow: hidden;
+}
+.role-hero::before {
+  content: '';
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  right: -135px;
+  top: -210px;
+  border: 1px solid rgba(111, 208, 242, 0.25);
+  border-radius: 50%;
+  box-shadow: 0 0 0 42px rgba(111, 208, 242, 0.035), 0 0 0 84px rgba(111, 208, 242, 0.02);
+  pointer-events: none;
+}
+.role-hero > * { position: relative; z-index: 1; }
+
+.hstat, .stat, .meta-item, .weather-day, .channel {
+  transition: transform .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.hstat:hover, .stat:hover, .meta-item:hover, .weather-day:hover, .channel:hover {
+  transform: translateY(-3px);
+  border-color: rgba(111, 208, 242, 0.42);
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.18);
+}
+
+.small-btn, .sim-controls button, .hero-actions button, .login-btn {
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease, border-color .18s ease, background .18s ease;
+}
+.small-btn:hover, .sim-controls button:hover, .hero-actions button:hover, .login-btn:hover { transform: translateY(-2px); }
+.small-btn:active, .sim-controls button:active, .hero-actions button:active, .login-btn:active { transform: translateY(0) scale(.98); }
+
+tbody tr { transition: background .18s ease, color .18s ease; }
+tbody tr:hover { background: rgba(111, 208, 242, 0.07); }
+
+.view-section.active { animation: sectionEnter .42s cubic-bezier(.2, .75, .25, 1) both; }
+@keyframes sectionEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.login-card {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(111, 208, 242, 0.27);
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: loginEnter .55s cubic-bezier(.2, .75, .25, 1) both;
+}
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: -100px auto auto -70px;
+  width: 210px;
+  height: 210px;
+  border-radius: 50%;
+  background: rgba(111, 208, 242, 0.09);
+  filter: blur(4px);
+  pointer-events: none;
+}
+.login-card > * { position: relative; z-index: 1; }
+@keyframes loginEnter {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (min-width: 861px) {
+  main.content { padding-top: clamp(22px, 3vw, 38px); }
+  .grid, .two-col { gap: clamp(16px, 2vw, 26px); }
+  .section-spaced { margin-top: clamp(16px, 2vw, 26px); }
+}
+
+@media (max-width: 600px) {
+  :root { font-size: 16px; }
+  .card:hover, .hstat:hover, .stat:hover, .meta-item:hover, .weather-day:hover, .channel:hover { transform: none; }
+  .role-hero::before { right: -180px; }
+  .login-card { border-radius: 18px; }
+  .weather-day { min-width: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
