@@ -119,7 +119,11 @@
               <div class="meta-item"><div class="k">Distance to next level</div><div class="v" id="distToCrit">0.43 m</div></div>
             </div>
             <div class="device-line">Sensor unit: JSN-SR04T waterproof ultrasonic · ESP32 microcontroller · SIM800L GSM fallback · solar + battery powered</div>
-            <div class="sim-controls">
+            <div class="test-mode-panel" id="testModePanel">
+              <button class="small-btn" id="testModeBtn" type="button" aria-pressed="false">Enable test mode</button>
+              <span id="testModeStatus">Live mode — real sensor data only</span>
+            </div>
+            <div class="sim-controls" id="simControls" hidden>
               <button class="primary btn-with-icon" id="btnRise"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12"/><path d="m8 8 4-4 4 4"/><path d="M6 16h12"/></svg>Simulate rising flood</button>
               <button class="btn-with-icon" id="btnCalm"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V8"/><path d="m8 12 4 4 4-4"/><path d="M6 4h12"/></svg>Return to normal</button>
             </div>

@@ -246,7 +246,7 @@
     clockDate.textContent = dateFormatter.format(now);
   }
 
-  function setSensorConnectionState(connected, { label = 'Unknown device', lastConnectionAt = null, battery = '—', signal = '—', notify = true } = {}) {
+  function setSensorConnectionState(connected, { label = 'Unknown device', lastConnectionAt = null, battery = '—', signal = '—', health = connected ? 'online' : 'offline', notify = true } = {}) {
     state.sensorDevice.connected = connected;
     state.sensorDevice.lastConnectionAt = lastConnectionAt || state.sensorDevice.lastConnectionAt;
     state.sensorDevice.battery = battery;
@@ -261,13 +261,14 @@
     const connText = $('connText');
 
     if (statusEl) {
-      statusEl.textContent = connected ? '● Online' : '● Offline';
+      statusEl.textContent = health === 'delayed' ? '● Delayed' : connected ? '● Online' : '● Offline';
       statusEl.classList.toggle('online', connected);
       statusEl.classList.toggle('offline', !connected);
+      statusEl.classList.toggle('delayed', health === 'delayed');
     }
 
     if (dashboardStatusEl) {
-      dashboardStatusEl.textContent = connected ? 'Online' : 'Offline';
+      dashboardStatusEl.textContent = health === 'delayed' ? 'Delayed' : connected ? 'Online' : 'Offline';
       dashboardStatusEl.classList.toggle('ok', connected);
       dashboardStatusEl.classList.toggle('warn', !connected);
     }
@@ -280,11 +281,11 @@
     logic.updateSensorStatus();
 
     if (connText) {
-      connText.textContent = connected ? 'SENSOR ONLINE' : 'SENSOR OFFLINE';
+      connText.textContent = health === 'delayed' ? 'SENSOR DELAYED' : connected ? 'SENSOR ONLINE' : 'SENSOR OFFLINE';
     }
 
     if (lastEl) {
-      const timestamp = connected && state.sensorDevice.lastConnectionAt
+      const timestamp = state.sensorDevice.lastConnectionAt
         ? new Intl.DateTimeFormat('en-PH', {
             timeZone: 'Asia/Manila',
             month: '2-digit',
@@ -303,12 +304,61 @@
 
     if (connected) {
       state.liveTelemetryActive = true;
-      state.lastTelemetryAt = Date.now();
+      state.lastTelemetryAt = state.sensorDevice.lastConnectionAt || Date.now();
     } else {
       state.liveTelemetryActive = false;
     }
 
     if (notify) ui.toast(connected ? `Sensor connected: ${label}` : 'Sensor disconnected. Device is offline.');
+  }
+
+  function renderTestMode() {
+    const enabled = Boolean(state.demoMode);
+    const controls = $('simControls');
+    const button = $('testModeBtn');
+    const status = $('testModeStatus');
+    document.body.classList.toggle('test-mode', enabled);
+    if (controls) controls.hidden = !enabled;
+    if (button) {
+      button.textContent = enabled ? 'Exit test mode' : 'Enable test mode';
+      button.setAttribute('aria-pressed', String(enabled));
+    }
+    if (status) {
+      status.textContent = enabled
+        ? 'TEST MODE — dashboard simulation only; no Firebase, SMS, or physical siren action'
+        : 'Live mode — real sensor data only';
+    }
+  }
+
+  function exitTestMode() {
+    state.demoMode = false;
+    if (Number.isFinite(state.lastRealtimeLevel)) {
+      state.level = state.lastRealtimeLevel;
+      state.target = state.lastRealtimeLevel;
+      state.hasVerifiedLiveReading = true;
+    }
+    state.lastStatusKey = stateApi.statusForLevel(state.level).key;
+    logic.resetChannels();
+    logic.setCriticalAlarm(false);
+    renderTestMode();
+    if (!state.hasVerifiedLiveReading) {
+      showWaitingForLiveData();
+      return;
+    }
+    ui.drawTube();
+    ui.drawChartOn($('trendChart'));
+  }
+
+  function showWaitingForLiveData() {
+    state.hasVerifiedLiveReading = false;
+    state.realtimeTelemetryActive = false;
+    state.liveTelemetryActive = false;
+    state.history.length = 0;
+    $('levelValue').textContent = '—';
+    logic.updateMeta(state.level);
+    ui.drawTube();
+    ui.drawChartOn($('trendChart'));
+    ui.renderHistoryTable();
   }
 
   function readRealtimeTimestamp(value) {
@@ -318,6 +368,14 @@
       if (Number.isFinite(parsed)) return parsed;
     }
     return Date.now();
+  }
+
+  function realtimeHealthStatus(reading, timestamp) {
+    if (reading.isOnline === false) return 'offline';
+    const age = Date.now() - timestamp;
+    if (age > 5 * 60 * 1000) return 'offline';
+    if (age > 2 * 60 * 1000) return 'delayed';
+    return 'online';
   }
 
   async function startRealtimeTelemetry() {
@@ -330,8 +388,8 @@
         const reading = snapshot.val();
         const level = Number(reading && reading.levelCm);
 
-        if (!reading || !Number.isFinite(level)) {
-          state.realtimeTelemetryActive = false;
+        if (!reading || !Number.isFinite(level) || reading.source !== 'floodguard-telemetry-api') {
+          showWaitingForLiveData();
           setSensorConnectionState(false, { label: 'No live database reading', notify: false });
           return;
         }
@@ -340,24 +398,32 @@
         const timestamp = readRealtimeTimestamp(reading.updatedAt);
         const battery = Number(reading.batteryV);
         const signal = typeof reading.signal === 'string' && reading.signal.trim() ? reading.signal.trim() : 'Unknown';
-        const online = reading.isOnline !== false;
+        const healthStatus = realtimeHealthStatus(reading, timestamp);
+        const online = healthStatus === 'online';
+        const sirenActive = Boolean(reading.siren && reading.siren.active && Number(reading.siren.expiresAt) > Date.now());
 
-        state.level = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
-        state.target = state.level;
+        const liveLevel = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
+        state.hasVerifiedLiveReading = true;
+        state.lastRealtimeLevel = liveLevel;
+        if (!state.demoMode) {
+          state.level = liveLevel;
+          state.target = liveLevel;
+        }
         state.lastTelemetryAt = timestamp;
         state.liveTelemetryActive = online;
         state.realtimeTelemetryActive = true;
 
-        if (!state.history.length || state.history[state.history.length - 1].v !== state.level) {
-          state.history.push({ t: timestamp, v: state.level });
+        if (!state.demoMode && (!state.history.length || state.history[state.history.length - 1].v !== liveLevel)) {
+          state.history.push({ t: timestamp, v: liveLevel });
           if (state.history.length > 40) state.history.shift();
         }
 
         setSensorConnectionState(online, {
-          label: 'Firebase Realtime Database · FG-001',
+          label: healthStatus === 'delayed' ? 'Telemetry delayed' : 'Firebase Realtime Database · FG-001',
           lastConnectionAt: timestamp,
           battery: Number.isFinite(battery) ? `${battery.toFixed(1)}V` : '—',
           signal,
+          health: healthStatus,
           notify: false
         });
 
@@ -367,6 +433,15 @@
         ui.drawChartOn($('trendChart'));
         ui.renderSourceCard();
         ui.renderForecast();
+        if (!state.demoMode) {
+          const remoteAlertActive = reading.alert && reading.alert.status && reading.alert.status !== 'normal';
+          $('chanSMS').classList.toggle('active', Boolean(remoteAlertActive));
+          $('chanSMSState').textContent = remoteAlertActive ? 'server-managed' : 'idle';
+          $('sirenRing').classList.toggle('on', sirenActive);
+          $('chanSiren').classList.toggle('active', sirenActive);
+          $('chanSirenState').textContent = sirenActive ? 'physical siren active' : 'idle';
+          logic.setCriticalAlarm(sirenActive);
+        }
         if (state.currentUser) ui.renderDecisionSupport();
       }, (error) => {
         console.error('Realtime Database listener failed:', error);
@@ -432,6 +507,7 @@
           const sensorLevel = Number(match[1]);
           const voltage = Number(match[2]);
           if (Number.isFinite(sensorLevel)) {
+            state.hasVerifiedLiveReading = true;
             state.level = Math.min(config.TUBE_MAX_CM, Math.max(0, sensorLevel));
             state.target = state.level;
             state.lastTelemetryAt = Date.now();
@@ -496,6 +572,34 @@
   }
 
   function bindStaticEvents() {
+    $('testModeBtn')?.addEventListener('click', () => {
+      if (state.demoMode) {
+        exitTestMode();
+        ui.toast('Test mode ended. Live sensor data is now displayed.');
+        return;
+      }
+      if (!window.confirm('Enable browser-only test mode? Simulated readings will not be saved to Firebase, trigger SMS, or activate the physical siren.')) return;
+      state.demoMode = true;
+      state.target = state.level;
+      state.lastStatusKey = stateApi.statusForLevel(state.level).key;
+      logic.resetChannels();
+      logic.setCriticalAlarm(false);
+      renderTestMode();
+      ui.toast('Test mode enabled. Use the simulation controls for a dashboard-only drill.');
+    });
+
+    $('btnRise')?.addEventListener('click', () => {
+      if (!state.demoMode) return;
+      state.target = config.TUBE_MAX_CM;
+      ui.toast('Test flood rise started. This does not affect Firebase or field hardware.');
+    });
+
+    $('btnCalm')?.addEventListener('click', () => {
+      if (!state.demoMode) return;
+      state.target = 32;
+      ui.toast('Test level returning to normal. This does not affect Firebase or field hardware.');
+    });
+
     $('roleCardMdrrmo')?.addEventListener('click', () => {
       state.selectedRole = 'mdrrmo';
       $('roleCardMdrrmo').classList.toggle('selected', true);
@@ -786,15 +890,22 @@
     }
 
     function tick() {
+      if (!state.demoMode && !state.hasVerifiedLiveReading) {
+        state.wavePhase += 0.25;
+        logic.updateMeta(state.level);
+        ui.drawTube();
+        ui.drawChartOn($('trendChart'));
+        return;
+      }
       const noise = (Math.random() - 0.5) * 1.6;
-      if (!state.realtimeTelemetryActive && (!state.liveTelemetryActive || Date.now() - state.lastTelemetryAt > 10 * 60 * 1000)) {
+      if (state.demoMode || (!state.realtimeTelemetryActive && (!state.liveTelemetryActive || Date.now() - state.lastTelemetryAt > 10 * 60 * 1000))) {
         state.liveTelemetryActive = false;
         state.level += (state.target - state.level) * 0.08 + noise;
       }
       state.level = Math.max(0, Math.min(config.TUBE_MAX_CM, state.level));
       const prevLevel = state.history.length ? state.history[state.history.length - 1].v : state.level;
       const lastReading = state.history[state.history.length - 1];
-      if (!state.liveTelemetryActive && (!lastReading || Date.now() - lastReading.t >= 180000)) {
+      if (!state.demoMode && !state.liveTelemetryActive && (!lastReading || Date.now() - lastReading.t >= 180000)) {
         state.history.push({ t: Date.now(), v: state.level });
         if (state.history.length > 40) state.history.shift();
       }
@@ -815,17 +926,31 @@
       }
 
       if (st.key !== state.lastStatusKey) {
+        if (state.demoMode) {
+          logic.resetChannels();
+          logic.fireChannel('chanDash', 'chanDashState', 'test notification', 200);
+          $('chanSMSState').textContent = 'not sent — test mode';
+          $('chanSirenState').textContent = 'not activated — test mode';
+          state.lastStatusKey = st.key;
+          return;
+        }
         logic.resetChannels();
         if (st.key !== 'normal') {
           logic.fireChannel('chanDash', 'chanDashState', 'notified', 600);
-          logic.sendAutomaticSms(st, state.level);
-          if (st.key === 'critical') {
+          // In live mode the server endpoint sends SMS and commands the
+          // physical siren. Browser-only alarms remain available for demo mode.
+          if (!state.realtimeTelemetryActive) {
+            logic.sendAutomaticSms(st, state.level);
+          }
+          if (!state.realtimeTelemetryActive && st.key === 'critical') {
             $('sirenRing').classList.add('on');
             $('chanSirenState').textContent = 'sounding';
           }
         }
         logic.logAlert(st, state.level);
-        logic.setCriticalAlarm(st.key === 'critical');
+        if (!state.realtimeTelemetryActive) {
+          logic.setCriticalAlarm(st.key === 'critical');
+        }
         state.lastStatusKey = st.key;
       }
     }
@@ -838,7 +963,7 @@
     setInterval(tick, 1400);
     fetchWeather();
     setInterval(fetchWeather, 5 * 60000);
-    stateApi.seedHistory();
+    state.history.length = 0;
     logic.rebuildAlertLogTable();
     ui.renderHistoryTable();
     ui.renderSourceCard();
@@ -846,6 +971,7 @@
     ui.renderDecisionSupport();
     ui.showView('dashboard');
     syncReportData();
+    renderTestMode();
   }
 
   window.FloodGuardApp = { init, state, syncReportData };

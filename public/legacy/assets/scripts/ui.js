@@ -222,7 +222,8 @@ window.FloodGuardUI = (() => {
       ctx.fillRect(tubeX, tubeTop, tubeW, yFrom - tubeTop);
     });
 
-    const pct = Math.min(state.level, config.TUBE_MAX_CM) / config.TUBE_MAX_CM;
+    const hasDisplayLevel = state.demoMode || state.hasVerifiedLiveReading;
+    const pct = hasDisplayLevel ? Math.min(state.level, config.TUBE_MAX_CM) / config.TUBE_MAX_CM : 0;
     const waterY = tubeBottom - pct * tubeH;
     const st = statusForLevel(state.level);
     const grad = ctx.createLinearGradient(0, waterY, 0, tubeBottom);
@@ -267,6 +268,12 @@ window.FloodGuardUI = (() => {
     ctx.font = '700 8px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('SNSR', tubeX + tubeW / 2, 12);
+    if (!hasDisplayLevel) {
+      ctx.fillStyle = '#9aa7c7';
+      ctx.font = '700 10px "Roboto Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('NO LIVE DATA', tubeX + tubeW / 2, tubeTop + tubeH / 2);
+    }
     ctx.restore();
   }
 
@@ -307,6 +314,14 @@ window.FloodGuardUI = (() => {
     for (let v = 0; v <= config.TUBE_MAX_CM; v += 30) {
       const y = padT + plotH - (v / config.TUBE_MAX_CM) * plotH;
       ctx.fillText((v / 100).toFixed(1) + 'm', padL - 8, y + 3);
+    }
+
+    if (!state.history.length) {
+      ctx.fillStyle = '#9aa7c7';
+      ctx.font = '12px "Roboto Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for verified ESP32 telemetry', padL + plotW / 2, padT + plotH / 2);
+      return;
     }
 
     ctx.beginPath();

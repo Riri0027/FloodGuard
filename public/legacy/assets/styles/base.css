@@ -383,6 +383,11 @@ main.content{flex:1; min-width:0; padding:clamp(14px, 2.5vw, 28px) clamp(12px, 3
 }
 
 .sim-controls{width:100%; margin-top:16px; display:flex; gap:8px;}
+.sim-controls[hidden]{display:none;}
+.test-mode-panel{width:100%; margin-top:16px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; background:rgba(255,255,255,0.035);}
+.test-mode-panel span{font-family:'Roboto Mono',monospace; font-size:0.62rem; color:var(--ink-2); text-align:right;}
+body.test-mode .test-mode-panel{border-color:rgba(245,166,35,0.8); background:rgba(245,166,35,0.12);}
+body.test-mode .test-mode-panel span{color:#f8d98a; font-weight:700;}
 .sim-controls button{
   font-size:0.76rem; font-weight:500; border-radius:9px; border:1px solid rgba(255,255,255,0.12); padding:9px 12px;
   background:rgba(255,255,255,0.06); color:var(--ink-1); cursor:pointer; flex:1;
@@ -671,6 +676,7 @@ tbody tr.fade-in{animation:fadeIn .4s ease;}
 .device-status{font-weight:600;}
 .device-status.online{color:var(--ok);}
 .device-status.offline{color:var(--crit);}
+.device-status.delayed{color:var(--warn);}
 
 /* CSS ID: BACKUP & RESTORE | HTML: #backupStatus */
 .backup-status{margin-top:12px; font-size:0.78rem; color:var(--ink-2); font-family:'Roboto Mono', monospace; line-height:1.6;}
@@ -772,6 +778,8 @@ footer b{color:var(--ink-1);}
 
   .sim-controls,
   .hero-actions{flex-direction:column;}
+  .test-mode-panel{align-items:stretch; flex-direction:column;}
+  .test-mode-panel span{text-align:left;}
   .sim-controls button,
   .hero-actions button{width:100%;}
   /* .report-actions mobile width rule moved to reports.css */
