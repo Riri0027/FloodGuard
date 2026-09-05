@@ -64,16 +64,9 @@ window.FloodGuardUI = (() => {
       row.innerHTML = `
         <span class="th-dot"></span>
         <span><span class="th-name">${t.name}</span><span class="th-desc">${t.desc}</span></span>
-        <input type="range" min="20" max="119" value="${t.min}" id="range-${t.key}">
         <span class="th-val" id="val-${t.key}">${t.min} cm</span>
       `;
       wrap.appendChild(row);
-      row.querySelector('input').addEventListener('input', (e) => {
-        t.min = parseInt(e.target.value, 10);
-        row.querySelector('.th-val').textContent = t.min + ' cm';
-        drawTube();
-        drawChartOn($('trendChart'));
-      });
     });
   }
 
@@ -117,19 +110,64 @@ window.FloodGuardUI = (() => {
     if (!wrap) return;
     const fc = stateApi.computeForecast();
     const nextT = config.THRESHOLDS.find((t) => t.min > state.level);
-    const rising = fc && fc.slopeCmPerMin > 0.3;
+    const sampleCount = Math.min(10, state.history.length);
 
-    if (!rising) {
+    if (!state.hasVerifiedLiveReading && !state.demoMode) {
       wrap.innerHTML = `
         <div class="forecast-headline">
-          <div class="f-icon">📉</div>
+          <div class="f-icon">📡</div>
           <div>
-            <div class="f-title">No significant rise projected</div>
-            <div class="f-sub">The short-term trend from the last ${fc ? fc.windowSize : 0} readings is steady or falling.${nextT ? ' No threshold breach is currently projected if this trend continues.' : ''}</div>
+            <div class="f-title">Waiting for live water-level telemetry</div>
+            <div class="f-sub">A forecast will start after the gateway sends verified readings.</div>
+          </div>
+        </div>`;
+      return;
+    }
+
+    if (!fc) {
+      wrap.innerHTML = `
+        <div class="forecast-headline">
+          <div class="f-icon">📊</div>
+          <div>
+            <div class="f-title">Learning the water-level trend</div>
+            <div class="f-sub">${sampleCount} of 4 readings received. The forecast will update automatically when enough timestamped readings are available.</div>
           </div>
         </div>
         <div class="forecast-metrics">
-          <div class="stat"><div class="k">Rate of change</div><div class="v ok">${fc ? (fc.slopeCmPerMin / 100).toFixed(3) : '0.000'} m/min</div><div class="sub">last ${fc ? fc.windowSize : 0} readings</div></div>
+          <div class="stat"><div class="k">Trend samples</div><div class="v">${sampleCount}/4</div><div class="sub">minimum needed</div></div>
+          <div class="stat"><div class="k">Next threshold</div><div class="v">${nextT ? nextT.name : '—'}</div><div class="sub">${nextT ? formatMeters(nextT.min - state.level) + ' away' : 'at max tier'}</div></div>
+          <div class="stat"><div class="k">Projected ETA</div><div class="v">—</div><div class="sub">collecting data</div></div>
+        </div>`;
+      return;
+    }
+
+    const slope = fc.slopeCmPerMin;
+    const rising = slope > 0.3;
+
+    if (!rising) {
+      const falling = slope < -0.3;
+      const slowRise = slope > 0;
+      const title = falling
+        ? 'Water level is falling'
+        : slowRise
+          ? 'Slow rise detected — monitoring trend'
+          : 'Water level is stable';
+      const detail = falling
+        ? 'The recent readings are decreasing, so no upward threshold breach is projected from this short-term trend.'
+        : slowRise
+          ? 'The level is increasing, but the current rate is below the forecast alert rate. The system will keep recalculating with every reading.'
+          : 'The recent readings are steady, so no upward threshold breach is projected if this trend continues.';
+      const rateClass = falling ? 'ok' : slowRise ? 'warn' : 'ok';
+      wrap.innerHTML = `
+        <div class="forecast-headline">
+          <div class="f-icon">${falling ? '📉' : slowRise ? '📈' : '➖'}</div>
+          <div>
+            <div class="f-title">${title}</div>
+            <div class="f-sub">${detail}</div>
+          </div>
+        </div>
+        <div class="forecast-metrics">
+          <div class="stat"><div class="k">Rate of change</div><div class="v ${rateClass}">${(slope / 100).toFixed(3)} m/min</div><div class="sub">last ${fc.windowSize} readings</div></div>
           <div class="stat"><div class="k">Next threshold</div><div class="v">${nextT ? nextT.name : '—'}</div><div class="sub">${nextT ? formatMeters(nextT.min - state.level) + ' away' : 'at max tier'}</div></div>
           <div class="stat"><div class="k">Projected ETA</div><div class="v">—</div><div class="sub">not applicable</div></div>
         </div>

@@ -1,4 +1,5 @@
 import { App, cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 
 function serviceAccount() {
@@ -25,4 +26,15 @@ export function firebaseAdminDatabase() {
   });
 
   return getDatabase(app);
+}
+
+/** Verifies browser-issued Firebase ID tokens in server routes. */
+export async function requireFirebaseUser(authorization: string | null) {
+  if (!authorization?.startsWith('Bearer ')) {
+    throw new Error('Missing bearer token.');
+  }
+
+  // Ensure the Admin app has been initialized before retrieving Auth.
+  firebaseAdminDatabase();
+  return getAuth().verifyIdToken(authorization.slice('Bearer '.length));
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { firebaseAdminDatabase } from '../../lib/firebase-admin';
+import { deliverPendingAlert } from '../../lib/alert-delivery';
+import { runtimeConfig } from '../../lib/runtime-config';
 
 export const runtime = 'nodejs';
-
-const OFFLINE_AFTER_MS = 5 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -20,14 +20,16 @@ export async function GET(request: NextRequest) {
 
     for (const [deviceId, device] of Object.entries(devices ?? {})) {
       if (device.source !== 'floodguard-telemetry-api') continue;
+      await deliverPendingAlert(db, deviceId);
       const updatedAt = Number(device.updatedAt);
-      const stale = !Number.isFinite(updatedAt) || now - updatedAt > OFFLINE_AFTER_MS;
+      const stale = !Number.isFinite(updatedAt) || now - updatedAt > runtimeConfig.offlineAfterMs;
       if (!stale || device.isOnline === false) continue;
 
       await db.ref(`devices/${deviceId}`).update({
         isOnline: false,
         health: { status: 'offline', checkedAt: now, lastSeenAt: updatedAt || null },
       });
+      await db.ref(`publicStatus/${deviceId}`).update({ isOnline: false, healthCheckedAt: now });
       await db.ref('alerts').push({ type: 'device-offline', deviceId, createdAt: now, lastSeenAt: updatedAt || null });
       offline.push(deviceId);
     }

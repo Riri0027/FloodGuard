@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
+import { requireFirebaseUser } from '../../lib/firebase-admin';
 
 export const runtime = 'nodejs';
 const MAX_REPORT_SIZE = 1_000_000;
@@ -89,6 +90,12 @@ async function createPdf(html: string) {
 }
 
 export async function POST(request: Request) {
+  try {
+    await requireFirebaseUser(request.headers.get('authorization'));
+  } catch {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+  }
+
   const formData = await request.formData(); const report = formData.get('report'); const filename = formData.get('filename');
   if (typeof report !== 'string' || !report.trim() || report.length > MAX_REPORT_SIZE) return NextResponse.json({ error: 'Invalid report content.' }, { status: 400 });
   const pdf = await createPdf(report);

@@ -14,6 +14,7 @@
   const state = stateApi.state;
   const $ = stateApi.$;
   let stopRealtimeTelemetry = null;
+  let stopRealtimeHistory = null;
   const WEATHER_LOCATION = {
     label: 'Bicol Region · Bilog Falls',
     coordinates: '13.83°N, 123.53°E',
@@ -201,6 +202,21 @@
     return window.FloodGuardFirebase.ready;
   }
 
+  async function loadServerPolicy() {
+    const firebase = await firebaseServices();
+    const user = firebase.auth.currentUser;
+    if (!user) return;
+    const response = await fetch('/api/system-config', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
+    if (!response.ok) throw new Error('Unable to load server alert policy.');
+    const policy = await response.json();
+    config.TUBE_MAX_CM = Number(policy.maxLevelCm) || config.TUBE_MAX_CM;
+    const warning = config.THRESHOLDS.find((item) => item.key === 'alert');
+    const evacuate = config.THRESHOLDS.find((item) => item.key === 'critical');
+    if (warning) warning.min = Number(policy.warningCm) || warning.min;
+    if (evacuate) evacuate.min = Number(policy.evacuateCm) || evacuate.min;
+    ui.renderThresholds();
+  }
+
   function friendlyAuthError(error) {
     const messages = {
       'auth/invalid-credential': 'Incorrect email or password.',
@@ -384,6 +400,32 @@
     try {
       const firebase = await firebaseServices();
       const deviceRef = firebase.ref(firebase.rtdb, 'devices/FG-001');
+      const historyRef = firebase.query(
+        firebase.ref(firebase.rtdb, 'telemetry/FG-001'),
+        firebase.limitToLast(40)
+      );
+
+      stopRealtimeHistory = firebase.onValue(historyRef, (snapshot) => {
+        const readings = [];
+        snapshot.forEach((child) => {
+          const reading = child.val();
+          const level = Number(reading && reading.levelCm);
+          const timestamp = Number(reading && reading.recordedAt);
+          if (!reading || reading.source !== 'floodguard-telemetry-api' || !Number.isFinite(level) || !Number.isFinite(timestamp)) return;
+          readings.push({ t: timestamp, v: Math.min(config.TUBE_MAX_CM, Math.max(0, level)) });
+        });
+
+        readings.sort((a, b) => a.t - b.t);
+        state.history.length = 0;
+        state.history.push(...readings.slice(-40));
+        ui.drawChartOn($('trendChart'));
+        ui.renderHistoryTable();
+        ui.renderForecast();
+        if (state.currentUser) ui.renderDecisionSupport();
+      }, (error) => {
+        console.error('Telemetry history listener failed:', error);
+      });
+
       stopRealtimeTelemetry = firebase.onValue(deviceRef, (snapshot) => {
         const reading = snapshot.val();
         const level = Number(reading && reading.levelCm);
@@ -413,7 +455,7 @@
         state.liveTelemetryActive = online;
         state.realtimeTelemetryActive = true;
 
-        if (!state.demoMode && (!state.history.length || state.history[state.history.length - 1].v !== liveLevel)) {
+        if (!state.demoMode && (!state.history.length || state.history[state.history.length - 1].t !== timestamp)) {
           state.history.push({ t: timestamp, v: liveLevel });
           if (state.history.length > 40) state.history.shift();
         }
@@ -457,7 +499,9 @@
 
   function stopRealtimeDatabaseTelemetry() {
     if (stopRealtimeTelemetry) stopRealtimeTelemetry();
+    if (stopRealtimeHistory) stopRealtimeHistory();
     stopRealtimeTelemetry = null;
+    stopRealtimeHistory = null;
     state.realtimeTelemetryActive = false;
   }
 
@@ -680,6 +724,7 @@
           uid: credential.user.uid
         };
         logic.doLogin();
+        await loadServerPolicy();
         startRealtimeTelemetry();
       } catch (error) {
         console.error('Firebase sign-in failed:', error);
@@ -828,12 +873,8 @@
           if (Array.isArray(s.history) && s.history.length) { state.history.length = 0; state.history.push(...s.history); }
           if (Array.isArray(s.alertLog)) { state.alertLog.length = 0; state.alertLog.push(...s.alertLog); }
           if (Array.isArray(s.users) && s.users.length) { state.users.length = 0; state.users.push(...s.users); }
-          if (Array.isArray(s.thresholds)) {
-            s.thresholds.forEach((saved) => {
-              const t = config.THRESHOLDS.find((item) => item.key === saved.key);
-              if (t) t.min = saved.min;
-            });
-          }
+          // Thresholds are server-controlled operational policy and are never
+          // restored from an untrusted browser export.
           if (typeof s.level === 'number') {
             state.level = s.level;
             state.target = s.target ?? s.level;

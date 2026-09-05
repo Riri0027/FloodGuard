@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FloodGuard | Live Status</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; color: #172033; background: #eef3f8; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 20px; box-sizing: border-box; }
+    main { width: min(600px, 100%); background: #fff; border-radius: 18px; padding: 30px; box-shadow: 0 12px 35px #15214322; text-align: center; }
+    .brand { color: #ef7d00; font-weight: 800; letter-spacing: .08em; } h1 { margin: 10px 0 4px; font-size: 1.7rem; } p { color: #52627c; }
+    .status { margin: 28px 0 20px; border-radius: 14px; padding: 24px; background: #eef2f7; border: 2px solid #9aa7c7; }
+    .status.normal { background: #e9f8f1; border-color: #31a86d; } .status.warning { background: #fff6df; border-color: #df9a00; } .status.evacuate { background: #ffebe8; border-color: #d94835; } .status.offline { background: #f0f1f4; border-color: #7b8493; }
+    .label { font-size: .78rem; font-weight: bold; letter-spacing: .12em; } .value { font-size: 3.1rem; font-weight: 800; margin: 8px 0; } .level { font-size: 1.1rem; } .meta { font-size: .9rem; } a { color: #1f5f9d; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">FLOODGUARD</div>
+    <h1>Bilog Falls Live Water Status</h1>
+    <p>Public information board · updates automatically</p>
+    <section class="status offline" id="card" aria-live="polite">
+      <div class="label" id="status">CONNECTING</div>
+      <div class="value" id="level">—</div>
+      <div class="level">Water level</div>
+    </section>
+    <p class="meta" id="updated">Waiting for a verified device reading.</p>
+    <p class="meta">For emergency direction, follow official MDRRMO and barangay announcements.</p>
+    <p><a href="/">Staff sign in</a></p>
+  </main>
+  <script src="assets/scripts/firebase.js"></script>
+  <script>
+    (async () => {
+      const card = document.getElementById('card');
+      const status = document.getElementById('status');
+      const level = document.getElementById('level');
+      const updated = document.getElementById('updated');
+      try {
+        const firebase = await window.FloodGuardFirebase.ready;
+        firebase.onValue(firebase.ref(firebase.rtdb, 'publicStatus/FG-001'), (snapshot) => {
+          const data = snapshot.val();
+          const levelCm = Number(data && data.levelCm);
+          const online = Boolean(data && data.isOnline);
+          const state = online && ['normal', 'warning', 'evacuate'].includes(data.status) ? data.status : 'offline';
+          card.className = `status ${state}`;
+          status.textContent = state === 'evacuate' ? 'EVACUATE' : state === 'warning' ? 'WARNING' : state === 'normal' ? 'NORMAL' : 'SENSOR OFFLINE';
+          level.textContent = Number.isFinite(levelCm) ? `${(levelCm / 100).toFixed(2)} m` : '—';
+          updated.textContent = Number(data && data.updatedAt) ? `Last verified reading: ${new Date(data.updatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}` : 'Waiting for a verified device reading.';
+        }, () => { updated.textContent = 'Live status is temporarily unavailable.'; });
+      } catch { updated.textContent = 'Live status is temporarily unavailable.'; }
+    })();
+  </script>
+</body>
+</html>

@@ -1,121 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { deliverPendingAlert } from '../../lib/alert-delivery';
 import { firebaseAdminDatabase } from '../../lib/firebase-admin';
+import { runtimeConfig } from '../../lib/runtime-config';
 
 export const runtime = 'nodejs';
-
-const DEVICE_ID = 'FG-001';
-const WARNING_CM = 75;
-const EVACUATE_CM = 150;
-const SIREN_DURATION_MS = 120_000;
-
 type AlertStatus = 'normal' | 'warning' | 'evacuate';
+const requests = new Map<string, number[]>();
 
-function statusFor(levelCm: number): AlertStatus {
-  if (levelCm >= EVACUATE_CM) return 'evacuate';
-  if (levelCm >= WARNING_CM) return 'warning';
+function statusFor(levelCm: number, previous: AlertStatus): AlertStatus {
+  const { warningCm, evacuateCm, hysteresisCm } = runtimeConfig;
+  if (previous === 'evacuate' && levelCm >= evacuateCm - hysteresisCm) return 'evacuate';
+  if (previous === 'warning' && levelCm >= warningCm - hysteresisCm && levelCm < evacuateCm) return 'warning';
+  if (levelCm >= evacuateCm) return 'evacuate';
+  if (levelCm >= warningCm) return 'warning';
   return 'normal';
 }
 
-function textFor(status: AlertStatus, levelCm: number) {
-  const level = (levelCm / 100).toFixed(2);
-  return status === 'evacuate'
-    ? `FLOODGUARD EVACUATE: Bilog Falls water level is ${level} m. Evacuate the falls area and follow MDRRMO instructions.`
-    : `FLOODGUARD WARNING: Bilog Falls water level is ${level} m. Avoid the water's edge and monitor official updates.`;
-}
-
-async function sendSms(message: string) {
-  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, ALERT_RECIPIENTS } = process.env;
-  const recipients = (ALERT_RECIPIENTS ?? '').split(',').map((number) => number.trim()).filter(Boolean);
-
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER || recipients.length === 0) {
-    return { configured: false, delivered: 0 };
-  }
-
-  const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
-  const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-  const results = await Promise.allSettled(recipients.map(async (to) => {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({ To: to, From: TWILIO_FROM_NUMBER, Body: message }),
-    });
-    if (!response.ok) throw new Error(`Twilio returned ${response.status}`);
-  }));
-
-  return { configured: true, delivered: results.filter((result) => result.status === 'fulfilled').length };
+function isRateLimited(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const now = Date.now();
+  const recent = (requests.get(ip) ?? []).filter((time) => now - time < 60_000);
+  if (recent.length >= runtimeConfig.requestLimitPerMinute) return true;
+  recent.push(now); requests.set(ip, recent);
+  return false;
 }
 
 export async function POST(request: NextRequest) {
-  if (!process.env.DEVICE_INGEST_KEY || request.headers.get('x-device-key') !== process.env.DEVICE_INGEST_KEY) {
-    return NextResponse.json({ error: 'Unauthorized device.' }, { status: 401 });
-  }
-
+  if (!process.env.DEVICE_INGEST_KEY || request.headers.get('x-device-key') !== process.env.DEVICE_INGEST_KEY) return NextResponse.json({ error: 'Unauthorized device.' }, { status: 401 });
+  if (isRateLimited(request)) return NextResponse.json({ error: 'Too many telemetry requests.' }, { status: 429 });
   let payload: Record<string, unknown>;
-  try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Body must be valid JSON.' }, { status: 400 });
-  }
-
+  try { payload = await request.json(); } catch { return NextResponse.json({ error: 'Body must be valid JSON.' }, { status: 400 }); }
   const deviceId = String(payload.deviceId ?? '');
   const levelCm = Number(payload.levelCm);
-  if (deviceId !== DEVICE_ID || !Number.isFinite(levelCm) || levelCm < 0 || levelCm > 200) {
-    return NextResponse.json({ error: 'Invalid telemetry payload.' }, { status: 400 });
-  }
+  if (deviceId !== runtimeConfig.deviceId || !Number.isFinite(levelCm) || levelCm < 0 || levelCm > runtimeConfig.maxLevelCm) return NextResponse.json({ error: 'Invalid telemetry payload.' }, { status: 400 });
 
   try {
     const now = Date.now();
+    const requestId = crypto.randomUUID();
     const db = firebaseAdminDatabase();
-    const deviceRef = db.ref(`devices/${DEVICE_ID}`);
-    const previous = (await deviceRef.get()).val() as { alert?: { status?: AlertStatus; changedAt?: number } } | null;
-    const currentStatus = statusFor(levelCm);
-    const previousStatus = previous?.alert?.status ?? 'normal';
-    const statusChanged = previousStatus !== currentStatus;
-    const shouldNotify = (previousStatus === 'normal' && currentStatus !== 'normal')
-      || (previousStatus === 'warning' && currentStatus === 'evacuate');
-    const sirenActive = currentStatus === 'evacuate';
-    const sirenExpiresAt = sirenActive ? now + SIREN_DURATION_MS : now;
-
-    const telemetry = {
-      // Lets dashboards distinguish server-validated ESP32 telemetry from
-      // sample or manually entered database values.
-      source: 'floodguard-telemetry-api',
-      levelCm: Number(levelCm.toFixed(1)),
-      batteryV: Number.isFinite(Number(payload.batteryV)) ? Number(payload.batteryV) : null,
-      signal: typeof payload.signal === 'string' ? payload.signal.slice(0, 40) : 'Unknown',
-      isOnline: true,
-      updatedAt: now,
-      health: { status: 'online', checkedAt: now, lastSeenAt: now },
-      alert: { status: currentStatus, changedAt: statusChanged ? now : previous?.alert?.changedAt ?? now },
-      siren: { active: sirenActive, expiresAt: sirenExpiresAt },
-    };
-
-    await deviceRef.update(telemetry);
-
-    let sms = { configured: Boolean(process.env.TWILIO_ACCOUNT_SID), delivered: 0 };
-    if (shouldNotify) {
-      sms = await sendSms(textFor(currentStatus, levelCm));
-      await db.ref('alerts').push({
-        deviceId: DEVICE_ID,
-        levelCm: telemetry.levelCm,
-        status: currentStatus,
-        createdAt: now,
-        sms,
-        siren: sirenActive,
-      });
-    }
-
-    // The ESP32 must use this reply to drive an opto-isolated relay, and stop
-    // the physical siren itself when expiresAt is reached if it loses the link.
-    return NextResponse.json({
-      accepted: true,
-      status: currentStatus,
-      sms,
-      siren: { active: sirenActive, expiresAt: sirenExpiresAt },
+    const deviceRef = db.ref(`devices/${deviceId}`);
+    const result = await deviceRef.transaction((existing: Record<string, any> | null) => {
+      const old = existing ?? {};
+      const oldAlert = old.alert ?? {};
+      const previous: AlertStatus = ['normal', 'warning', 'evacuate'].includes(oldAlert.status) ? oldAlert.status : 'normal';
+      const candidate = statusFor(levelCm, previous);
+      const candidateReadings = oldAlert.candidateStatus === candidate ? Number(oldAlert.candidateReadings ?? 0) + 1 : 1;
+      const nextStatus: AlertStatus = candidate === previous || candidateReadings >= runtimeConfig.confirmationReadings ? candidate : previous;
+      const changed = nextStatus !== previous;
+      const alert: Record<string, unknown> = { ...oldAlert, status: nextStatus, changedAt: changed ? now : oldAlert.changedAt ?? now, candidateStatus: candidate, candidateReadings };
+      if (changed && nextStatus !== 'normal') alert.pendingNotification = { id: requestId, status: nextStatus, levelCm: Number(levelCm.toFixed(1)), createdAt: now, state: 'queued', attempts: 0 };
+      if (nextStatus === 'normal') delete alert.pendingNotification;
+      const sirenActive = nextStatus === 'evacuate';
+      return { ...old, source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV: Number.isFinite(Number(payload.batteryV)) ? Number(payload.batteryV) : null, signal: typeof payload.signal === 'string' ? payload.signal.slice(0, 40) : 'Unknown', isOnline: true, updatedAt: now, health: { status: 'online', checkedAt: now, lastSeenAt: now }, alert, siren: { active: sirenActive, expiresAt: sirenActive ? now + runtimeConfig.sirenDurationMs : now } };
     });
+    const current = result.snapshot.val() as Record<string, any>;
+    await Promise.all([
+      db.ref(`telemetry/${deviceId}`).push({ source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV: current.batteryV, signal: current.signal, recordedAt: now }),
+      // This intentionally contains only information appropriate for a public
+      // status board. Operational data stays under the authenticated paths.
+      db.ref(`publicStatus/${deviceId}`).set({ levelCm: current.levelCm, status: current.alert.status, isOnline: true, updatedAt: current.updatedAt }),
+    ]);
+    const sms = await deliverPendingAlert(db, deviceId);
+    return NextResponse.json({ accepted: true, status: current.alert.status, confirmation: { candidate: current.alert.candidateStatus, readings: current.alert.candidateReadings, required: runtimeConfig.confirmationReadings }, sms: sms ?? { configured: Boolean(process.env.SEMAPHORE_API_KEY), delivered: 0 }, siren: current.siren });
   } catch (error) {
     console.error('Telemetry ingestion failed:', error);
     return NextResponse.json({ error: 'Telemetry service unavailable.' }, { status: 503 });

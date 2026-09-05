@@ -164,7 +164,7 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     </div>`;
   }
 
-  function downloadReport(reportBody, filename = 'floodguard-data-report.pdf') {
+  async function downloadReport(reportBody, filename = 'floodguard-data-report.pdf') {
     const reportStyles = `
       <style>
         * { box-sizing: border-box; }
@@ -256,26 +256,26 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     `;
 
     const htmlDocument = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>FloodGuard Report</title>${reportStyles}</head><body>${reportBody}</body></html>`;
-    // Use the Vercel/Next endpoint instead of a browser-only Blob URL. Its
-    // Content-Disposition header makes this a true download in deployments.
-    const form = document.createElement('form');
-    form.method = 'post';
-    form.action = new URL('/api/download-report', window.location.origin).href;
-    form.style.display = 'none';
-
-    const addField = (name, value) => {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = name;
-      input.value = value;
-      form.appendChild(input);
-    };
-    addField('report', htmlDocument);
-    addField('filename', filename);
-
-    document.body.appendChild(form);
-    form.submit();
-    window.setTimeout(() => form.remove(), 1000);
+    const firebase = await window.FloodGuardFirebase.ready;
+    const user = firebase.auth.currentUser;
+    if (!user) throw new Error('Sign in is required to download a report.');
+    const token = await user.getIdToken();
+    const body = new FormData();
+    body.set('report', htmlDocument);
+    body.set('filename', filename);
+    const response = await fetch('/api/download-report', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body
+    });
+    if (!response.ok) throw new Error(`Report service returned ${response.status}.`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     return filename;
   }
 
@@ -284,10 +284,10 @@ ${f.THRESHOLDS.filter(t => t.key !== 'normal').map(t => '  ' + t.name + ': ' + f
     if (!downloadBtn) return;
 
     downloadBtn.hidden = false;
-    downloadBtn.onclick = () => {
+    downloadBtn.onclick = async () => {
       try {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = downloadReport(reportBody, `floodguard-data-report-${stamp}.pdf`);
+        const filename = await downloadReport(reportBody, `floodguard-data-report-${stamp}.pdf`);
         toast(`Report download started: ${filename}`);
       } catch (err) {
         console.error('Report download failed', err);

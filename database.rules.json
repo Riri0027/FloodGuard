@@ -9,6 +9,18 @@
     "alerts": {
       ".read": "auth != null",
       ".write": false
+    },
+    "telemetry": {
+      "$deviceId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "publicStatus": {
+      "$deviceId": {
+        ".read": true,
+        ".write": false
+      }
     }
   }
 }

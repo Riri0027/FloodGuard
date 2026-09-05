@@ -21,14 +21,27 @@ npm run build
 
 The current dashboard can be deployed to Vercel, Firebase App Hosting, or any Node.js host. Before treating it as an emergency-warning system, complete this checklist:
 
-1. Create a Firebase service account with Realtime Database access, then add the server-only values in `.env.example` to the host's environment settings. Never commit the service-account JSON, device key, or Twilio token.
+1. Create a Firebase service account with Realtime Database access, then add the server-only values in `.env.example` to the host's environment settings. Never commit the service-account JSON, device key, or Semaphore API key.
 2. Deploy `database.rules.json` in Firebase Realtime Database Rules. It prevents browsers and devices from writing telemetry directly; only the server's Admin SDK can write it.
-3. Configure a Twilio number and verified recipient numbers, then supply the Twilio and `ALERT_RECIPIENTS` values. Philippine destination numbers must be E.164 format, for example `+639...`.
+3. Create a Semaphore account, register a Sender Name, add SMS credits, then supply `SEMAPHORE_API_KEY`, optional `SEMAPHORE_SENDER_NAME`, and `ALERT_RECIPIENTS`. Use Philippine mobile numbers such as `0917...` or `63917...`; separate multiple recipients with commas.
 4. Configure the ESP32 to POST every reading to `https://YOUR_DOMAIN/api/telemetry` with `Content-Type: application/json` and header `x-device-key: <DEVICE_INGEST_KEY>`.
 5. Wire the actual siren through a correctly rated, opto-isolated relay/contactor. The ESP32 reads the `siren.active` reply and must turn the relay off by `siren.expiresAt` even when it loses connectivity. Do not power a mains siren from an ESP32 GPIO pin.
 6. Test with a supervised drill at Warning (75 cm), Evacuate (150 cm), sensor-offline, lost-network, and power-recovery conditions. Obtain MDRRMO approval for message wording, recipients, and alarm duration.
 
-`vercel.json` runs a protected device-health check every five minutes. Add a long random `CRON_SECRET` to Vercel so the scheduled check can mark an API-verified device offline when its `updatedAt` is more than five minutes old. The next successful ESP32 upload automatically restores it to online.
+`vercel.json` runs a protected device-health check every five minutes. Add a long random `CRON_SECRET` to Vercel so the scheduled check can mark an API-verified device offline when its `updatedAt` is more than five minutes old and retry a failed SMS delivery. This schedule requires Vercel Pro or Enterprise; Hobby permits only daily cron jobs. The next successful ESP32 upload automatically restores it to online.
+
+## Operational safeguards implemented in software
+
+- Alert thresholds, confirmation count, siren duration, and stale-device period are server-only environment values. The dashboard reads them after sign-in and cannot change them.
+- A threshold transition requires `ALERT_CONFIRMATION_READINGS` consecutive readings (default: three) and uses `ALERT_HYSTERESIS_CM` (default: five cm) before clearing an active alert.
+- SMS alerts are retained as retryable device records. The next protected health check retries a provider failure; during an incident, inspect any `pendingNotification.state` other than `sent`.
+- PDF export and dashboard configuration require a Firebase ID token.
+- `DEVICE_REQUESTS_PER_MINUTE` is an in-process guard. Configure equivalent rate limiting/WAF protection at your hosting provider because serverless instances do not share memory.
+- `/status` is a public, login-free live status board. It reads only `publicStatus/FG-001` (level, alert state, online state, and timestamp); full records remain authenticated.
+
+## Required before public emergency use
+
+This repository cannot certify field equipment or municipal procedure. Before public reliance, document independent sensor calibration, supervised power-loss/network-loss drills, rated relay and siren inspection, a secondary communication channel, recipient consent and message approval, designated operators, Firebase backup/retention, incident-log review, and MDRRMO authorization. Do not use Vercel Hobby as the sole operational host for an emergency-warning system.
 
 ### ESP32 request/response contract
 
