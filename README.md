@@ -28,7 +28,7 @@ The current dashboard can be deployed to Vercel, Firebase App Hosting, or any No
 5. Wire the actual siren through a correctly rated, opto-isolated relay/contactor. The ESP32 reads the `siren.active` reply and must turn the relay off by `siren.expiresAt` even when it loses connectivity. Do not power a mains siren from an ESP32 GPIO pin.
 6. Test with a supervised drill at Warning (75 cm), Evacuate (150 cm), sensor-offline, lost-network, and power-recovery conditions. Obtain MDRRMO approval for message wording, recipients, and alarm duration.
 
-`vercel.json` runs a protected device-health check every five minutes. Add a long random `CRON_SECRET` to Vercel so the scheduled check can mark an API-verified device offline when its `updatedAt` is more than five minutes old and retry a failed SMS delivery. This schedule requires Vercel Pro or Enterprise; Hobby permits only daily cron jobs. The next successful ESP32 upload automatically restores it to online.
+On Vercel Pro or Enterprise, configure a protected request to `/api/device-health` every five minutes with `Authorization: Bearer <CRON_SECRET>`. It marks an API-verified device offline when its `updatedAt` is more than five minutes old and retries a failed SMS delivery. The included project deliberately has no `vercel.json` cron so it deploys on Vercel Hobby; Hobby cannot run this five-minute check. The next successful ESP32 upload automatically restores the device to online.
 
 ## Operational safeguards implemented in software
 
