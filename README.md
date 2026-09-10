@@ -28,6 +28,17 @@ The current dashboard can be deployed to Vercel, Firebase App Hosting, or any No
 5. Wire the actual siren through a correctly rated, opto-isolated relay/contactor. The ESP32 reads the `siren.active` reply and must turn the relay off by `siren.expiresAt` even when it loses connectivity. Do not power a mains siren from an ESP32 GPIO pin.
 6. Test with a supervised drill at Warning (75 cm), Evacuate (150 cm), sensor-offline, lost-network, and power-recovery conditions. Obtain MDRRMO approval for message wording, recipients, and alarm duration.
 
+### Optional upstream early-watch sensor
+
+FloodGuard can accept a second, upstream device and send a one-time **Watch** SMS before the local water-level threshold is crossed. Configure `UPSTREAM_DEVICE_ID` and have that ESP32 POST the same telemetry format as the local device. A Watch is queued only when all of these are true:
+
+- enough timestamped upstream readings exist (`UPSTREAM_TREND_READINGS`, default 5);
+- the upstream level is at or above `UPSTREAM_WATCH_CM`;
+- linear-regression rise rate is at or above `UPSTREAM_RISE_RATE_CM_PER_MIN`; and
+- the condition holds for `UPSTREAM_WATCH_CONFIRMATION_READINGS` consecutive uploads.
+
+The Watch SMS is sent once per rising event and re-arms only after the upstream condition clears. It never activates the siren; siren activation remains tied exclusively to the local device reaching `EVACUATE_CM`. Set `UPSTREAM_LEAD_TIME_MINUTES` only from observed upstream-to-Bilog-Falls travel times, and validate all values through supervised drills before public use. A Watch is a precautionary forecast, not a guaranteed flood prediction.
+
 `vercel.json` runs a protected device-health check every five minutes. Add a long random `CRON_SECRET` to Vercel so the scheduled check can mark an API-verified device offline when its `updatedAt` is more than five minutes old and retry a failed SMS delivery. This schedule requires Vercel Pro or Enterprise; Hobby permits only daily cron jobs. The next successful ESP32 upload automatically restores it to online.
 
 ## Operational safeguards implemented in software
@@ -52,5 +63,7 @@ POST /api/telemetry
 // 200 response
 { "accepted": true, "status": "evacuate", "siren": { "active": true, "expiresAt": 1760000000000 } }
 ```
+
+When `UPSTREAM_DEVICE_ID` is configured, that exact ID is also accepted by the endpoint. Its Watch response contains an `earlyWarning` trend record; its `siren.active` response always remains `false`.
 
 SMS is sent only when the state changes from Normal to Warning/Evacuate, preventing a message on every sensor upload. It rearms after the reading returns to Normal. The endpoint saves readings and commands in Firebase, so signed-in dashboards update in real time even when no dashboard is open.

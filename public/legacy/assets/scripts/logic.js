@@ -33,7 +33,6 @@ window.FloodGuardLogic = (() => {
     pickCause,
     clearCause,
     initials,
-    isBlockedUser,
     buildBackupPayload
   } = stateApi;
 

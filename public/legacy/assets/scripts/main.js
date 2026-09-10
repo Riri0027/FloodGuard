@@ -225,9 +225,18 @@
       'auth/email-already-in-use': 'An account already exists for that email address.',
       'auth/weak-password': 'Password must contain at least 6 characters.',
       'auth/invalid-email': 'Enter a valid email address.',
+      'auth/operation-not-allowed': 'Email/password sign-in is disabled in Firebase Authentication.',
       'auth/network-request-failed': 'Network error. Check your connection and try again.'
     };
+    if (error && (error.code === 'permission-denied' || error.code === 'firestore/permission-denied')) return 'Account request could not be saved. Publish the Firestore rules, then try again.';
     return messages[error && error.code] || error.message || 'Unable to complete authentication.';
+  }
+
+  function setSignupStatus(message = '', kind = '') {
+    const status = $('signupStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.className = `auth-status${kind ? ` ${kind}` : ''}`;
   }
 
   function updateClock() {
@@ -743,20 +752,28 @@
       const email = $('signupEmail').value.trim();
       const password = $('signupPassword').value;
       const confirmation = $('signupConfirmPassword').value;
-      if (!name) return ui.toast('Please enter your full name.');
-      if (!email) return ui.toast('Please enter your email address.');
-      if (password.length < 6) return ui.toast('Password must have at least 6 characters.');
-      if (password !== confirmation) return ui.toast('Passwords do not match.');
-      if (stateApi.isBlockedUser(name)) return ui.toast('Access denied: this user has been blocked.');
+      const button = $('signupBtn');
+      const showValidation = (message) => { setSignupStatus(message, 'error'); ui.toast(message); };
+      if (!name) return showValidation('Please enter your full name.');
+      if (!email) return showValidation('Please enter your email address.');
+      if (password.length < 6) return showValidation('Password must have at least 6 characters.');
+      if (password !== confirmation) return showValidation('Passwords do not match.');
       const roleKey = $('signupRole').value;
-        const requestedRole = roleKey === 'mdrrmo' ? 'MDRRMO Personnel' : 'Barangay Official';
+      const requestedRole = roleKey === 'mdrrmo' ? 'MDRRMO Personnel' : 'Barangay Official';
 
       try {
+        button.disabled = true;
+        button.textContent = 'Submitting request…';
+        setSignupStatus('Creating your pending access request…');
         const firebase = await firebaseServices();
         const credential = await firebase.createUserWithEmailAndPassword(firebase.auth, email, password);
+        // Use Firebase's authenticated email, which is the value validated by
+        // the Firestore rule, instead of relying on the raw form value.
+        const authenticatedEmail = credential.user.email;
+        if (!authenticatedEmail) throw new Error('Firebase did not return an email for this account.');
         await firebase.setDoc(firebase.doc(firebase.db, 'users', credential.user.uid), {
           name,
-          email,
+          email: authenticatedEmail,
           role: 'Pending approval',
           roleKey: 'pending',
           requestedRole,
@@ -770,17 +787,24 @@
         $('signupConfirmPassword').value = '';
         $('signupScreen').hidden = true;
         $('loginScreen').style.display = 'flex';
-        $('loginName').value = email;
+        $('loginName').value = authenticatedEmail;
+        setSignupStatus('');
         ui.toast('Account request submitted. An administrator must approve it before you can log in.');
       } catch (error) {
         console.error('Firebase sign-up failed:', error);
-        ui.toast(friendlyAuthError(error));
+        const message = friendlyAuthError(error);
+        setSignupStatus(message, 'error');
+        ui.toast(message);
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Create account';
       }
     });
 
     $('showSignupBtn').addEventListener('click', () => {
       $('loginScreen').style.display = 'none';
       $('signupScreen').hidden = false;
+      setSignupStatus('');
       $('signupName').focus();
     });
 

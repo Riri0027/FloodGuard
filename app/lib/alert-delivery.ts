@@ -1,11 +1,15 @@
 import type { Database } from 'firebase-admin/database';
 
-type AlertStatus = 'warning' | 'evacuate';
-type PendingNotification = { id: string; status: AlertStatus; levelCm: number; createdAt: number; state: 'queued' | 'sending' | 'sent' | 'failed'; attempts: number; leaseUntil?: number };
+type AlertStatus = 'watch' | 'warning' | 'evacuate';
+type PendingNotification = { id: string; status: AlertStatus; levelCm: number; createdAt: number; state: 'queued' | 'sending' | 'sent' | 'failed'; attempts: number; leaseUntil?: number; riseRateCmPerMin?: number; estimatedLeadTimeMinutes?: number };
 
-function alertText(status: AlertStatus, levelCm: number) {
+function alertText(status: AlertStatus, levelCm: number, riseRateCmPerMin?: number, estimatedLeadTimeMinutes?: number) {
   const level = (levelCm / 100).toFixed(2);
-  return status === 'evacuate' ? `FLOODGUARD EVACUATE: Bilog Falls water level is ${level} m. Evacuate the falls area and follow MDRRMO instructions.` : `FLOODGUARD WARNING: Bilog Falls water level is ${level} m. Avoid the water's edge and monitor official updates.`;
+  if (status === 'evacuate') return `FLOODGUARD EVACUATE: Bilog Falls water level is ${level} m. Evacuate the falls area and follow MDRRMO instructions.`;
+  if (status === 'warning') return `FLOODGUARD WARNING: Bilog Falls water level is ${level} m. Avoid the water's edge and monitor official updates.`;
+  const rate = Number.isFinite(riseRateCmPerMin) ? ` Rising ${Number(riseRateCmPerMin).toFixed(1)} cm/min.` : '';
+  const lead = Number.isFinite(estimatedLeadTimeMinutes) ? ` Conditions may affect Bilog Falls in about ${Math.round(Number(estimatedLeadTimeMinutes))} minutes.` : '';
+  return `FLOODGUARD WATCH: Upstream water is rising rapidly (${level} m).${rate}${lead} Stay away from the water and prepare to leave. Monitor MDRRMO updates.`;
 }
 
 async function sendSms(message: string) {
@@ -38,9 +42,9 @@ export async function deliverPendingAlert(db: Database, deviceId: string) {
   if (!didClaim) return null;
   const claimed = transaction.snapshot.val() as PendingNotification;
   try {
-    const sms = await sendSms(alertText(claimed.status, claimed.levelCm));
+    const sms = await sendSms(alertText(claimed.status, claimed.levelCm, claimed.riseRateCmPerMin, claimed.estimatedLeadTimeMinutes));
     await ref.update({ state: 'sent', sentAt: Date.now(), leaseUntil: null, sms, error: null });
-    await db.ref('alerts').push({ type: 'threshold-alert', deviceId, status: claimed.status, levelCm: claimed.levelCm, createdAt: claimed.createdAt, deliveredAt: Date.now(), sms });
+    await db.ref('alerts').push({ type: claimed.status === 'watch' ? 'early-watch-alert' : 'threshold-alert', deviceId, status: claimed.status, levelCm: claimed.levelCm, createdAt: claimed.createdAt, deliveredAt: Date.now(), sms });
     return sms;
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 180) : 'Unknown SMS delivery error.';
