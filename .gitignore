@@ -9,3 +9,5 @@ node_modules/
 .env*.local
 .env
 service-account.json
+# Device firmware secrets
+firmware/**/config.h

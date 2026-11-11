@@ -39,7 +39,7 @@ FloodGuard can accept a second, upstream device and send a one-time **Watch** SM
 
 The Watch SMS is sent once per rising event and re-arms only after the upstream condition clears. It never activates the siren; siren activation remains tied exclusively to the local device reaching `EVACUATE_CM`. Set `UPSTREAM_LEAD_TIME_MINUTES` only from observed upstream-to-Bilog-Falls travel times, and validate all values through supervised drills before public use. A Watch is a precautionary forecast, not a guaranteed flood prediction.
 
-`vercel.json` runs a protected device-health check every five minutes. Add a long random `CRON_SECRET` to Vercel so the scheduled check can mark an API-verified device offline when its `updatedAt` is more than five minutes old and retry a failed SMS delivery. This schedule requires Vercel Pro or Enterprise; Hobby permits only daily cron jobs. The next successful ESP32 upload automatically restores it to online.
+Offline detection and SMS retry need `GET /api/device-health` to be called on a schedule with the header `Authorization: Bearer <CRON_SECRET>`. `vercel.json` ships empty so the project deploys on Vercel Hobby; on Pro add `{"crons":[{"path":"/api/device-health","schedule":"*/5 * * * *"}]}` to it, or on Hobby use a free external scheduler such as cron-job.org with that header. The dashboard itself still shows the sensor offline after 5 minutes without needing the schedule. Add a long random `CRON_SECRET` to Vercel so the scheduled check can mark an API-verified device offline when its `updatedAt` is more than five minutes old and retry a failed SMS delivery. This schedule requires Vercel Pro or Enterprise; Hobby permits only daily cron jobs. The next successful ESP32 upload automatically restores it to online.
 
 ## Operational safeguards implemented in software
 
@@ -67,3 +67,11 @@ POST /api/telemetry
 When `UPSTREAM_DEVICE_ID` is configured, that exact ID is also accepted by the endpoint. Its Watch response contains an `earlyWarning` trend record; its `siren.active` response always remains `false`.
 
 SMS is sent only when the state changes from Normal to Warning/Evacuate, preventing a message on every sensor upload. It rearms after the reading returns to Normal. The endpoint saves readings and commands in Firebase, so signed-in dashboards update in real time even when no dashboard is open.
+
+## ESP32 device firmware
+
+Ready-to-flash firmware lives in [`firmware/`](firmware/README.md). It reads the JSN-SR04T ultrasonic sensor, converts distance to water height, posts to `/api/telemetry` every 15 seconds, and drives the siren relay from the server's reply (with a local fail-safe timer).
+
+## Status consistency
+
+The dashboard follows the server's confirmed alert status (`alert.status`: 3-reading confirmation plus 5 cm hysteresis) for the live level, so the dashboard badge, SMS, siren and public `/status` page always agree. Demo mode still derives status from the level locally.
