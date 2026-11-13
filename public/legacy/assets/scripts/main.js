@@ -13,8 +13,17 @@
   const config = window.FloodGuardConfig;
   const state = stateApi.state;
   const $ = stateApi.$;
+  const SENSOR_HISTORY_STORAGE_KEY = 'floodguard.sensor-history.FG-001.v1';
+  const MAX_HISTORY_RECORDS = 40;
   let stopRealtimeTelemetry = null;
   let stopRealtimeHistory = null;
+  let sensorConnectionInProgress = false;
+  let pendingSensorPort = null;
+  let sensorReconnectTimer = null;
+  let manualSensorDisconnect = false;
+  let serialConnectionEventsBound = false;
+  let historyStorageWarningShown = false;
+  let resumeAlertOnNextReading = false;
   const WEATHER_LOCATION = {
     label: 'Bicol Region · Bilog Falls',
     coordinates: '13.83°N, 123.53°E',
@@ -27,14 +36,67 @@
     return;
   }
 
+  function normalizeSensorHistory(records) {
+    if (!Array.isArray(records)) return [];
+    const readings = new Map();
+    records.forEach((reading) => {
+      const timestamp = Number(reading && reading.t);
+      const level = Number(reading && reading.v);
+      if (Number.isFinite(timestamp) && timestamp > 0 && Number.isFinite(level) && level >= 0 && level <= config.TUBE_MAX_CM) {
+        readings.set(timestamp, { t: timestamp, v: level });
+      }
+    });
+    return Array.from(readings.values()).sort((a, b) => a.t - b.t).slice(-MAX_HISTORY_RECORDS);
+  }
+
+  function mergeSensorHistory(...recordSets) {
+    return normalizeSensorHistory(recordSets.flat());
+  }
+
+  function persistSensorHistory() {
+    try {
+      localStorage.setItem(SENSOR_HISTORY_STORAGE_KEY, JSON.stringify(state.history));
+    } catch (error) {
+      if (!historyStorageWarningShown) {
+        console.error('Unable to save local sensor history:', error);
+        historyStorageWarningShown = true;
+      }
+    }
+  }
+
+  function restoreSensorHistory() {
+    try {
+      const stored = localStorage.getItem(SENSOR_HISTORY_STORAGE_KEY);
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) throw new Error('Stored sensor history is not a list.');
+      return normalizeSensorHistory(parsed);
+    } catch (error) {
+      console.error('Unable to restore local sensor history:', error);
+      return [];
+    }
+  }
+
+  function recordSensorReading(timestamp, level) {
+    state.history.splice(0, state.history.length, ...mergeSensorHistory(state.history, [{ t: timestamp, v: level }]));
+    persistSensorHistory();
+  }
+
+  function renderLastSensorReading() {
+    const latest = state.history[state.history.length - 1];
+    const sensorReadingEl = $('sensorLastReading');
+    if (latest && sensorReadingEl) sensorReadingEl.textContent = `${(latest.v / 100).toFixed(2)} m`;
+  }
+
   function syncReportData() {
     window.FloodGuardReportData = {
-      level: state.level,
+      get level() { return state.level; },
       history: state.history,
-      currentUser: state.currentUser,
-      rainLoc: state.rainLoc,
-      currentCause: state.currentCause,
-      alertsToday: state.alertsToday,
+      get hasVerifiedLiveReading() { return state.hasVerifiedLiveReading; },
+      get currentUser() { return state.currentUser; },
+      get rainLoc() { return state.rainLoc; },
+      get currentCause() { return state.currentCause; },
+      get alertsToday() { return state.alertsToday; },
       thresholds: config.THRESHOLDS,
       decisionMatrix: config.DECISION_MATRIX,
       statusForLevel: stateApi.statusForLevel,
@@ -271,42 +333,19 @@
     clockDate.textContent = dateFormatter.format(now);
   }
 
-  function setSensorConnectionState(connected, { label = 'Unknown device', lastConnectionAt = null, battery = '—', signal = '—', health = connected ? 'online' : 'offline', notify = true } = {}) {
+  function setSensorConnectionState(connected, { label = 'Unknown device', lastConnectionAt = null, battery = '—', signal = '—', notify = true } = {}) {
     state.sensorDevice.connected = connected;
     state.sensorDevice.lastConnectionAt = lastConnectionAt || state.sensorDevice.lastConnectionAt;
     state.sensorDevice.battery = battery;
     state.sensorDevice.signal = signal;
 
-    const statusEl = $('sensorDeviceStatus');
     const lastEl = $('sensorLastConnection');
     const batteryEl = $('sensorBattery');
     const signalEl = $('sensorSignal');
-    const dashboardStatusEl = $('dashboardSensorStatus');
     const dashboardLabelEl = $('dashboardSensorLabel');
-    const connText = $('connText');
-
-    if (statusEl) {
-      statusEl.textContent = health === 'delayed' ? '● Delayed' : connected ? '● Online' : '● Offline';
-      statusEl.classList.toggle('online', connected);
-      statusEl.classList.toggle('offline', !connected);
-      statusEl.classList.toggle('delayed', health === 'delayed');
-    }
-
-    if (dashboardStatusEl) {
-      dashboardStatusEl.textContent = health === 'delayed' ? 'Delayed' : connected ? 'Online' : 'Offline';
-      dashboardStatusEl.classList.toggle('ok', connected);
-      dashboardStatusEl.classList.toggle('warn', !connected);
-    }
 
     if (dashboardLabelEl) {
       dashboardLabelEl.textContent = connected ? 'ESP32 FloodGuard · connected' : 'JSN-SR04T · ESP32';
-    }
-
-    // Update the top status pill (SENSOR ONLINE / OFFLINE)
-    logic.updateSensorStatus();
-
-    if (connText) {
-      connText.textContent = health === 'delayed' ? 'SENSOR DELAYED' : connected ? 'SENSOR ONLINE' : 'SENSOR OFFLINE';
     }
 
     if (lastEl) {
@@ -327,58 +366,16 @@
     if (batteryEl) batteryEl.textContent = battery;
     if (signalEl) signalEl.textContent = signal;
 
-    if (connected) {
-      state.liveTelemetryActive = true;
-      state.lastTelemetryAt = state.sensorDevice.lastConnectionAt || Date.now();
-    } else {
-      state.liveTelemetryActive = false;
-    }
+    state.liveTelemetryActive = connected && state.hasVerifiedLiveReading;
+    logic.updateSensorStatus();
 
     if (notify) ui.toast(connected ? `Sensor connected: ${label}` : 'Sensor disconnected. Device is offline.');
-  }
-
-  function renderTestMode() {
-    const enabled = Boolean(state.demoMode);
-    const controls = $('simControls');
-    const button = $('testModeBtn');
-    const status = $('testModeStatus');
-    document.body.classList.toggle('test-mode', enabled);
-    if (controls) controls.hidden = !enabled;
-    if (button) {
-      button.textContent = enabled ? 'Exit test mode' : 'Enable test mode';
-      button.setAttribute('aria-pressed', String(enabled));
-    }
-    if (status) {
-      status.textContent = enabled
-        ? 'TEST MODE — dashboard simulation only; no Firebase, SMS, or physical siren action'
-        : 'Live mode — real sensor data only';
-    }
-  }
-
-  function exitTestMode() {
-    state.demoMode = false;
-    if (Number.isFinite(state.lastRealtimeLevel)) {
-      state.level = state.lastRealtimeLevel;
-      state.target = state.lastRealtimeLevel;
-      state.hasVerifiedLiveReading = true;
-    }
-    state.lastStatusKey = stateApi.statusForLevel(state.level).key;
-    logic.resetChannels();
-    logic.setCriticalAlarm(false);
-    renderTestMode();
-    if (!state.hasVerifiedLiveReading) {
-      showWaitingForLiveData();
-      return;
-    }
-    ui.drawTube();
-    ui.drawChartOn($('trendChart'));
   }
 
   function showWaitingForLiveData() {
     state.hasVerifiedLiveReading = false;
     state.realtimeTelemetryActive = false;
     state.liveTelemetryActive = false;
-    state.history.length = 0;
     $('levelValue').textContent = '—';
     logic.updateMeta(state.level);
     ui.drawTube();
@@ -403,6 +400,30 @@
     return 'online';
   }
 
+  function processCurrentStatus(forceResponse = false) {
+    const st = stateApi.statusForLevel(state.level);
+    if (st.key !== state.lastStatusKey || (forceResponse && st.key !== 'normal')) {
+      logic.resetChannels();
+      if (st.key !== 'normal') {
+        logic.fireChannel('chanDash', 'chanDashState', 'notified', 600);
+        if (state.realtimeTelemetryActive) {
+          $('chanSMSState').textContent = 'server-managed';
+        } else {
+          $('chanSMSState').textContent = 'unavailable · no server link';
+          if (st.key === 'critical') {
+            $('sirenRing').classList.add('on');
+            $('chanSirenState').textContent = 'browser alarm only';
+          }
+        }
+      }
+      logic.logAlert(st, state.level);
+      if (!state.realtimeTelemetryActive) {
+        logic.setCriticalAlarm(st.key === 'critical');
+      }
+      state.lastStatusKey = st.key;
+    }
+  }
+
   async function startRealtimeTelemetry() {
     if (stopRealtimeTelemetry) return;
 
@@ -425,8 +446,9 @@
         });
 
         readings.sort((a, b) => a.t - b.t);
-        state.history.length = 0;
-        state.history.push(...readings.slice(-40));
+        state.history.splice(0, state.history.length, ...mergeSensorHistory(state.history, readings));
+        persistSensorHistory();
+        renderLastSensorReading();
         ui.drawChartOn($('trendChart'));
         ui.renderHistoryTable();
         ui.renderForecast();
@@ -440,13 +462,17 @@
         const level = Number(reading && reading.levelCm);
 
         if (!reading || !Number.isFinite(level) || reading.source !== 'floodguard-telemetry-api') {
+          if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
           showWaitingForLiveData();
           setSensorConnectionState(false, { label: 'No live database reading', notify: false });
           return;
         }
 
-        const previousLevel = state.level;
         const timestamp = readRealtimeTimestamp(reading.updatedAt);
+        if (state.hasVerifiedLiveReading && Date.now() - state.lastTelemetryAt > 5 * 60 * 1000) {
+          resumeAlertOnNextReading = true;
+        }
+        const previousLevel = state.level;
         const battery = Number(reading.batteryV);
         const signal = typeof reading.signal === 'string' && reading.signal.trim() ? reading.signal.trim() : 'Unknown';
         const healthStatus = realtimeHealthStatus(reading, timestamp);
@@ -455,19 +481,12 @@
 
         const liveLevel = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
         state.hasVerifiedLiveReading = true;
-        state.lastRealtimeLevel = liveLevel;
-        if (!state.demoMode) {
-          state.level = liveLevel;
-          state.target = liveLevel;
-        }
+        state.level = liveLevel;
         state.lastTelemetryAt = timestamp;
         state.liveTelemetryActive = online;
         state.realtimeTelemetryActive = true;
 
-        if (!state.demoMode && (!state.history.length || state.history[state.history.length - 1].t !== timestamp)) {
-          state.history.push({ t: timestamp, v: liveLevel });
-          if (state.history.length > 40) state.history.shift();
-        }
+        recordSensorReading(timestamp, liveLevel);
 
         setSensorConnectionState(online, {
           label: healthStatus === 'delayed' ? 'Telemetry delayed' : 'Firebase Realtime Database · FG-001',
@@ -479,20 +498,23 @@
         });
 
         $('levelValue').textContent = (state.level / 100).toFixed(2);
+        renderLastSensorReading();
         logic.updateMeta(previousLevel);
+        if (resumeAlertOnNextReading && online) {
+          resumeAlertOnNextReading = false;
+          processCurrentStatus(true);
+        }
         ui.drawTube();
         ui.drawChartOn($('trendChart'));
         ui.renderSourceCard();
         ui.renderForecast();
-        if (!state.demoMode) {
-          const remoteAlertActive = reading.alert && reading.alert.status && reading.alert.status !== 'normal';
-          $('chanSMS').classList.toggle('active', Boolean(remoteAlertActive));
-          $('chanSMSState').textContent = remoteAlertActive ? 'server-managed' : 'idle';
-          $('sirenRing').classList.toggle('on', sirenActive);
-          $('chanSiren').classList.toggle('active', sirenActive);
-          $('chanSirenState').textContent = sirenActive ? 'physical siren active' : 'idle';
-          logic.setCriticalAlarm(sirenActive);
-        }
+        const remoteAlertActive = reading.alert && reading.alert.status && reading.alert.status !== 'normal';
+        $('chanSMS').classList.toggle('active', Boolean(remoteAlertActive));
+        $('chanSMSState').textContent = remoteAlertActive ? 'server-managed' : 'idle';
+        $('sirenRing').classList.toggle('on', sirenActive);
+        $('chanSiren').classList.toggle('active', sirenActive);
+        $('chanSirenState').textContent = sirenActive ? 'physical siren active' : 'idle';
+        logic.setCriticalAlarm(sirenActive);
         if (state.currentUser) ui.renderDecisionSupport();
       }, (error) => {
         console.error('Realtime Database listener failed:', error);
@@ -514,22 +536,48 @@
     state.realtimeTelemetryActive = false;
   }
 
-  async function connectToSensor() {
+  function scheduleSensorReconnect(port, delay = 3000) {
+    if (!port || manualSensorDisconnect || sensorReconnectTimer) return;
+    sensorReconnectTimer = setTimeout(() => {
+      sensorReconnectTimer = null;
+      if (!manualSensorDisconnect && !sensorConnectionInProgress && !state.sensorDevice.connected) {
+        connectToSensor(port, true);
+      }
+    }, delay);
+  }
+
+  async function connectToSensor(portOverride = null, isRetry = false) {
     if (!('serial' in navigator)) {
       setSensorConnectionState(false, { label: 'Web Serial not supported' });
       ui.toast('This browser does not support Web Serial. Use a compatible browser with a real sensor attached.');
       return;
     }
+    if (sensorConnectionInProgress || state.sensorDevice.connected) {
+      if (portOverride && sensorConnectionInProgress) pendingSensorPort = portOverride;
+      return;
+    }
 
+    sensorConnectionInProgress = true;
+    manualSensorDisconnect = false;
+    let port = portOverride;
+    let reader = null;
+    let opened = false;
     try {
-      const ports = await navigator.serial.getPorts();
-      const port = ports[0] || await navigator.serial.requestPort();
+      if (!port) {
+        const ports = await navigator.serial.getPorts();
+        port = ports[0] || await navigator.serial.requestPort();
+      }
       if (!port) {
         setSensorConnectionState(false, { label: 'No sensor found', lastConnectionAt: Date.now() });
         return;
       }
 
       await port.open({ baudRate: 115200 });
+      if (sensorReconnectTimer) {
+        clearTimeout(sensorReconnectTimer);
+        sensorReconnectTimer = null;
+      }
+      opened = true;
       state.sensorDevice.port = port;
       state.sensorDevice.connected = true;
       state.sensorDevice.lastConnectionAt = Date.now();
@@ -546,7 +594,7 @@
       if (port.readable) {
         port.readable.pipeTo(textDecoder.writable).catch(() => {});
       }
-      const reader = textDecoder.readable.getReader();
+      reader = textDecoder.readable.getReader();
       state.sensorDevice.reader = reader;
 
       while (true) {
@@ -559,31 +607,117 @@
         if (match) {
           const sensorLevel = Number(match[1]);
           const voltage = Number(match[2]);
-          if (Number.isFinite(sensorLevel)) {
+          if (Number.isFinite(sensorLevel) && sensorLevel >= 0 && sensorLevel <= config.TUBE_MAX_CM) {
+            const previousLevel = state.level;
+            const timestamp = Date.now();
             state.hasVerifiedLiveReading = true;
-            state.level = Math.min(config.TUBE_MAX_CM, Math.max(0, sensorLevel));
-            state.target = state.level;
-            state.lastTelemetryAt = Date.now();
+            state.level = sensorLevel;
+            state.lastTelemetryAt = timestamp;
             state.liveTelemetryActive = true;
+            recordSensorReading(timestamp, sensorLevel);
+            $('levelValue').textContent = (sensorLevel / 100).toFixed(2);
+            logic.updateMeta(previousLevel);
+            if (resumeAlertOnNextReading) {
+              resumeAlertOnNextReading = false;
+              processCurrentStatus(true);
+            }
             const batteryValue = Number.isFinite(voltage) && voltage > 0 ? `${(voltage * 2.5).toFixed(1)}V` : '—';
             state.sensorDevice.battery = batteryValue;
             state.sensorDevice.signal = 'Strong';
-            const sensorReadingEl = $('sensorLastReading');
-            if (sensorReadingEl) sensorReadingEl.textContent = `${(state.level / 100).toFixed(2)} m`;
+            renderLastSensorReading();
             if ($('sensorBattery')) $('sensorBattery').textContent = batteryValue;
             if ($('sensorSignal')) $('sensorSignal').textContent = 'Strong';
-            ui.toast('Real sensor reading received.');
+            ui.drawTube();
+            ui.drawChartOn($('trendChart'));
+            ui.renderHistoryTable();
             ui.renderSourceCard();
             ui.renderForecast();
-            ui.renderDecisionSupport();
+            if (state.currentUser) ui.renderDecisionSupport();
           }
         }
       }
     } catch (error) {
-      console.error('Sensor connect failed:', error);
-      setSensorConnectionState(false, { label: 'Connection failed', lastConnectionAt: Date.now(), battery: '—', signal: '—' });
-      ui.toast('Unable to connect to the real sensor. Please check the device and permissions.');
+      if (opened && state.sensorDevice.port !== port) {
+        console.warn('Sensor disconnected while reading:', error);
+      } else {
+        console.error('Sensor connect failed:', error);
+        if (port && !manualSensorDisconnect) pendingSensorPort = port;
+        setSensorConnectionState(false, { label: 'Connection failed', lastConnectionAt: Date.now(), battery: '—', signal: '—', notify: !isRetry });
+        if (!isRetry) ui.toast('Unable to connect to the real sensor. Please check the device and permissions.');
+      }
+    } finally {
+      if (reader) {
+        if (state.sensorDevice.reader === reader) state.sensorDevice.reader = null;
+        reader.releaseLock();
+      }
+      if (opened && state.sensorDevice.port === port) {
+        if (!manualSensorDisconnect) {
+          if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
+          pendingSensorPort = port;
+        }
+        state.sensorDevice.port = null;
+        state.sensorDevice.connected = false;
+        state.liveTelemetryActive = false;
+        if (!state.realtimeTelemetryActive) showWaitingForLiveData();
+        setSensorConnectionState(false, {
+          label: 'Sensor disconnected',
+          lastConnectionAt: Date.now(),
+          battery: '—',
+          signal: '—',
+          notify: false
+        });
+        try {
+          await port.close();
+        } catch (error) {
+          console.warn('Unable to close disconnected sensor port:', error);
+        }
+      }
+      sensorConnectionInProgress = false;
+      const reconnectPort = pendingSensorPort;
+      pendingSensorPort = null;
+      if (reconnectPort && !manualSensorDisconnect && !state.sensorDevice.connected) {
+        scheduleSensorReconnect(reconnectPort);
+      }
     }
+  }
+
+  function bindSerialConnectionEvents() {
+    if (!('serial' in navigator) || serialConnectionEventsBound) return;
+    serialConnectionEventsBound = true;
+    navigator.serial.addEventListener('connect', (event) => {
+      manualSensorDisconnect = false;
+      if (state.sensorDevice.connected && state.sensorDevice.port === event.port) return;
+      pendingSensorPort = event.port;
+      if (!sensorConnectionInProgress && !state.sensorDevice.connected) {
+        const port = pendingSensorPort;
+        pendingSensorPort = null;
+        connectToSensor(port);
+      }
+    });
+    navigator.serial.addEventListener('disconnect', (event) => {
+      if (state.sensorDevice.port !== event.port) return;
+      if (!manualSensorDisconnect) {
+        if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
+        pendingSensorPort = event.port;
+      }
+      const reader = state.sensorDevice.reader;
+      state.sensorDevice.port = null;
+      state.sensorDevice.reader = null;
+      state.sensorDevice.connected = false;
+      state.sensorDevice.lastConnectionAt = Date.now();
+      state.sensorDevice.battery = '—';
+      state.sensorDevice.signal = '—';
+      state.liveTelemetryActive = false;
+      setSensorConnectionState(false, {
+        label: 'Sensor disconnected',
+        lastConnectionAt: state.sensorDevice.lastConnectionAt,
+        battery: '—',
+        signal: '—',
+        notify: false
+      });
+      if (!state.realtimeTelemetryActive) showWaitingForLiveData();
+      if (reader) reader.cancel().catch((error) => console.warn('Unable to stop disconnected sensor reader:', error));
+    });
   }
 
   async function autoConnectSensor() {
@@ -591,26 +725,23 @@
     try {
       const ports = await navigator.serial.getPorts();
       if (!ports.length) return;
-      await connectToSensor();
+      await connectToSensor(ports[0]);
     } catch (error) {
       console.warn('Auto sensor connection skipped:', error);
     }
   }
 
   function disconnectFromSensor() {
+    manualSensorDisconnect = true;
+    if (sensorReconnectTimer) {
+      clearTimeout(sensorReconnectTimer);
+      sensorReconnectTimer = null;
+    }
+    if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
+    pendingSensorPort = null;
     const port = state.sensorDevice.port;
-    if (port && port.readable) {
-      port.readable.cancel().catch(() => {});
-    }
-    if (state.sensorDevice.reader) {
-      state.sensorDevice.reader.cancel().catch(() => {});
-      state.sensorDevice.reader.releaseLock?.();
-      state.sensorDevice.reader = null;
-    }
-    if (state.sensorDevice.port && typeof state.sensorDevice.port.close === 'function') {
-      state.sensorDevice.port.close().catch(() => {});
-    }
-    state.sensorDevice.port = null;
+    if (state.sensorDevice.reader) state.sensorDevice.reader.cancel().catch((error) => console.warn('Unable to stop sensor reader:', error));
+    if (!state.sensorDevice.reader && port && typeof port.close === 'function') port.close().catch((error) => console.warn('Unable to close sensor port:', error));
     state.sensorDevice.connected = false;
     state.sensorDevice.lastConnectionAt = Date.now();
     state.sensorDevice.battery = '—';
@@ -622,37 +753,54 @@
       battery: '—',
       signal: '—'
     });
+    if (!state.realtimeTelemetryActive) showWaitingForLiveData();
+  }
+
+  function escapeReportValue(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[character]);
+  }
+
+  function buildSessionPdfHtml(payload) {
+    const exportedAt = new Intl.DateTimeFormat('en-PH', {
+      timeZone: 'Asia/Manila', dateStyle: 'full', timeStyle: 'long'
+    }).format(new Date(payload.exportedAt));
+    const rows = [];
+    rows.push(['Exported at', exportedAt]);
+    rows.push(['Current water level', state.hasVerifiedLiveReading ? `${(state.level / 100).toFixed(2)} m` : 'No verified live reading']);
+    rows.push(['Current flood status', state.hasVerifiedLiveReading ? stateApi.statusForLevel(state.level).name : 'Waiting for sensor data']);
+    rows.push(['Recorded reading count', payload.state.history.length]);
+    payload.state.history.slice().reverse().forEach((reading, index) => {
+      const status = stateApi.statusForLevel(reading.v);
+      const timestamp = new Intl.DateTimeFormat('en-PH', {
+        timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'medium', hour12: true
+      }).format(new Date(reading.t));
+      rows.push([`Reading ${index + 1} · ${timestamp}`, `${Number(reading.v).toFixed(1)} cm (${(Number(reading.v) / 100).toFixed(2)} m) · ${status.name}`]);
+    });
+    rows.push(['Alert log count', payload.state.alertLog.length]);
+    payload.state.alertLog.forEach((alert, index) => {
+      rows.push([`Alert ${index + 1} · ${alert.time || 'time not recorded'}`, `${alert.statusName || alert.statusKey || 'Status unknown'} · ${alert.levelCm ?? '—'} cm${alert.cause ? ` · ${alert.cause}` : ''}`]);
+    });
+    const summaryRows = rows.map(([label, value]) => `<tr><th>${escapeReportValue(label)}</th><td>${escapeReportValue(value)}</td></tr>`).join('');
+    const thresholdRows = config.THRESHOLDS.filter((threshold) => threshold.key !== 'normal')
+      .map((threshold) => `<tr><th>${escapeReportValue(threshold.name)}</th><td>${escapeReportValue((threshold.min / 100).toFixed(2))} m</td></tr>`).join('');
+
+    return `<div class="official-report">
+      <div class="report-meta"><span>FloodGuard dashboard session export</span><span>${escapeReportValue(exportedAt)}</span><span>Station FG-001 · Lagonoy, Camarines Sur</span></div>
+      <h1>Dashboard Session Snapshot</h1>
+      <section><h2>Current Monitoring Summary</h2><table>${summaryRows}</table></section>
+      <section><h2>Assessment</h2><p>This PDF contains the dashboard's locally loaded readings and alert records at export time. It is a view snapshot and does not include server-only data.</p></section>
+      <section><h2>Recommended Action</h2><ol><li>Use the JSON backup when you need to import dashboard data again.</li><li>Confirm current conditions with live sensor data before making operational decisions.</li></ol></section>
+      <section><h2>Alert Thresholds</h2><table>${thresholdRows}</table></section>
+    </div>`;
   }
 
   function bindStaticEvents() {
-    $('testModeBtn')?.addEventListener('click', () => {
-      if (state.demoMode) {
-        exitTestMode();
-        ui.toast('Test mode ended. Live sensor data is now displayed.');
-        return;
-      }
-      if (!window.confirm('Enable browser-only test mode? Simulated readings will not be saved to Firebase, trigger SMS, or activate the physical siren.')) return;
-      state.demoMode = true;
-      state.target = state.level;
-      state.lastStatusKey = stateApi.statusForLevel(state.level).key;
-      logic.resetChannels();
-      logic.setCriticalAlarm(false);
-      renderTestMode();
-      ui.toast('Test mode enabled. Use the simulation controls for a dashboard-only drill.');
-    });
-
-    $('btnRise')?.addEventListener('click', () => {
-      if (!state.demoMode) return;
-      state.target = config.TUBE_MAX_CM;
-      ui.toast('Test flood rise started. This does not affect Firebase or field hardware.');
-    });
-
-    $('btnCalm')?.addEventListener('click', () => {
-      if (!state.demoMode) return;
-      state.target = 32;
-      ui.toast('Test level returning to normal. This does not affect Firebase or field hardware.');
-    });
-
     $('roleCardMdrrmo')?.addEventListener('click', () => {
       state.selectedRole = 'mdrrmo';
       $('roleCardMdrrmo').classList.toggle('selected', true);
@@ -741,7 +889,7 @@
       }
     });
 
-    $('connectSensorBtn').addEventListener('click', connectToSensor);
+    $('connectSensorBtn').addEventListener('click', () => connectToSensor());
     $('disconnectSensorBtn').addEventListener('click', disconnectFromSensor);
 
     $('loginName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
@@ -884,6 +1032,23 @@
       }
     });
 
+    $('backupPdfBtn').addEventListener('click', async () => {
+      try {
+        const payload = stateApi.buildBackupPayload();
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = await window.FloodGuardReports.downloadReport(
+          buildSessionPdfHtml(payload),
+          `floodguard-session-${stamp}.pdf`
+        );
+        logic.setBackupStatus('PDF saved: ' + filename, 'ok');
+        ui.toast('Dashboard PDF downloaded.');
+      } catch (err) {
+        console.error('Dashboard PDF export failed:', err);
+        logic.setBackupStatus('PDF export failed: ' + err.message, 'err');
+        ui.toast('Unable to export the dashboard PDF. Please try again.');
+      }
+    });
+
     $('importDataBtn').addEventListener('click', () => $('importDataInput').click());
     $('importDataInput').addEventListener('change', (e) => {
       const file = e.target.files && e.target.files[0];
@@ -894,18 +1059,19 @@
           const parsed = JSON.parse(reader.result);
           const s = parsed.state;
           if (!s) throw new Error('File does not contain a valid FloodGuard backup.');
-          if (Array.isArray(s.history) && s.history.length) { state.history.length = 0; state.history.push(...s.history); }
+          if (Array.isArray(s.history) && s.history.length) {
+            state.history.splice(0, state.history.length, ...normalizeSensorHistory(s.history));
+            persistSensorHistory();
+            renderLastSensorReading();
+          }
           if (Array.isArray(s.alertLog)) { state.alertLog.length = 0; state.alertLog.push(...s.alertLog); }
           if (Array.isArray(s.users) && s.users.length) { state.users.length = 0; state.users.push(...s.users); }
           // Thresholds are server-controlled operational policy and are never
           // restored from an untrusted browser export.
-          if (typeof s.level === 'number') {
-            state.level = s.level;
-            state.target = s.target ?? s.level;
-          }
+          if (typeof s.level === 'number') state.level = s.level;
           if (typeof s.alertsToday === 'number') state.alertsToday = s.alertsToday;
           if (typeof s.alertIdCounter === 'number') state.alertIdCounter = s.alertIdCounter;
-          if (typeof s.rainLoc === 'number') { state.rainLoc = state.rainLocT = s.rainLoc; }
+          if (typeof s.rainLoc === 'number') state.rainLoc = s.rainLoc;
           if (s.currentCauseKey) state.currentCause = config.CAUSES.find((cause) => cause.key === s.currentCauseKey) || null;
           state.lastStatusKey = s.lastStatusKey || stateApi.statusForLevel(state.level).key;
 
@@ -938,50 +1104,47 @@
   }
 
   function init() {
+    state.history.splice(0, state.history.length, ...mergeSensorHistory(state.history, restoreSensorHistory()));
+    renderLastSensorReading();
     syncReportData();
     bindStaticEvents();
     if (window.FloodGuardReports && window.FloodGuardReports.initialize) {
       window.FloodGuardReports.initialize();
     }
     ui.renderThresholds();
+    showWaitingForLiveData();
     ui.renderSourceCard();
     ui.renderForecast();
-    ui.drawTube();
-    ui.drawChartOn($('trendChart'));
-    ui.renderHistoryTable();
     if (state.currentUser) {
       logic.renderHero();
       ui.renderDecisionSupport();
     }
 
     function tick() {
-      if (!state.demoMode && !state.hasVerifiedLiveReading) {
-        state.wavePhase += 0.25;
-        logic.updateMeta(state.level);
-        ui.drawTube();
-        ui.drawChartOn($('trendChart'));
+      const serialPort = state.sensorDevice.port;
+      const serialReader = state.sensorDevice.reader;
+      const serialLastActivity = state.hasVerifiedLiveReading
+        ? state.lastTelemetryAt
+        : state.sensorDevice.lastConnectionAt;
+      if (serialPort && serialReader && serialLastActivity && Date.now() - serialLastActivity > 30 * 1000 && !manualSensorDisconnect) {
+        pendingSensorPort = serialPort;
+        if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
+        setSensorConnectionState(false, { label: 'Sensor data stalled', notify: false });
+        showWaitingForLiveData();
+        state.sensorDevice.reader = null;
+        serialReader.cancel().catch((error) => console.warn('Unable to restart stalled sensor reader:', error));
         return;
       }
-      const noise = (Math.random() - 0.5) * 1.6;
-      if (state.demoMode || (!state.realtimeTelemetryActive && (!state.liveTelemetryActive || Date.now() - state.lastTelemetryAt > 10 * 60 * 1000))) {
-        state.liveTelemetryActive = false;
-        state.level += (state.target - state.level) * 0.08 + noise;
+
+      if (!state.hasVerifiedLiveReading) {
+        logic.updateMeta(state.level);
+        return;
       }
-      state.level = Math.max(0, Math.min(config.TUBE_MAX_CM, state.level));
-      const prevLevel = state.history.length ? state.history[state.history.length - 1].v : state.level;
-      const lastReading = state.history[state.history.length - 1];
-      if (!state.demoMode && !state.liveTelemetryActive && (!lastReading || Date.now() - lastReading.t >= 180000)) {
-        state.history.push({ t: Date.now(), v: state.level });
-        if (state.history.length > 40) state.history.shift();
+      const ageMs = Date.now() - state.lastTelemetryAt;
+      if (!state.realtimeTelemetryActive) {
+        state.liveTelemetryActive = ageMs <= 5 * 60 * 1000;
       }
-      state.wavePhase += 0.25;
-      const st = stateApi.statusForLevel(state.level);
-      $('levelValue').textContent = (state.level / 100).toFixed(2);
-      logic.updateMeta(prevLevel);
-      ui.drawTube();
-      ui.drawChartOn($('trendChart'));
-      state.rainLoc += (state.rainLocT - state.rainLoc) * 0.15 + (Math.random() - 0.5) * 1.0;
-      state.rainLoc = Math.max(0, state.rainLoc);
+      logic.updateMeta(state.level);
       ui.renderSourceCard();
       ui.renderForecast();
       if (state.currentUser) ui.renderDecisionSupport();
@@ -990,45 +1153,20 @@
         ui.renderHistoryTable();
       }
 
-      if (st.key !== state.lastStatusKey) {
-        if (state.demoMode) {
-          logic.resetChannels();
-          logic.fireChannel('chanDash', 'chanDashState', 'test notification', 200);
-          $('chanSMSState').textContent = 'not sent — test mode';
-          $('chanSirenState').textContent = 'not activated — test mode';
-          state.lastStatusKey = st.key;
-          return;
-        }
-        logic.resetChannels();
-        if (st.key !== 'normal') {
-          logic.fireChannel('chanDash', 'chanDashState', 'notified', 600);
-          // In live mode the server endpoint sends SMS and commands the
-          // physical siren. Browser-only alarms remain available for demo mode.
-          if (!state.realtimeTelemetryActive) {
-            logic.sendAutomaticSms(st, state.level);
-          }
-          if (!state.realtimeTelemetryActive && st.key === 'critical') {
-            $('sirenRing').classList.add('on');
-            $('chanSirenState').textContent = 'sounding';
-          }
-        }
-        logic.logAlert(st, state.level);
-        if (!state.realtimeTelemetryActive) {
-          logic.setCriticalAlarm(st.key === 'critical');
-        }
-        state.lastStatusKey = st.key;
-      }
+      if (ageMs > 5 * 60 * 1000) return;
+
+      processCurrentStatus();
     }
 
     ui.drawTube();
     ui.drawChartOn($('trendChart'));
     updateClock();
     setInterval(updateClock, 1000);
+    bindSerialConnectionEvents();
     autoConnectSensor();
     setInterval(tick, 1400);
     fetchWeather();
     setInterval(fetchWeather, 5 * 60000);
-    state.history.length = 0;
     logic.rebuildAlertLogTable();
     ui.renderHistoryTable();
     ui.renderSourceCard();
@@ -1036,7 +1174,6 @@
     ui.renderDecisionSupport();
     ui.showView('dashboard');
     syncReportData();
-    renderTestMode();
   }
 
   window.FloodGuardApp = { init, state, syncReportData };

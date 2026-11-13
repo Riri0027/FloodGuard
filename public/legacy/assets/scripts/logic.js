@@ -30,8 +30,6 @@ window.FloodGuardLogic = (() => {
     $,
     statusForLevel,
     formatMeters,
-    pickCause,
-    clearCause,
     initials,
     buildBackupPayload
   } = stateApi;
@@ -65,7 +63,7 @@ window.FloodGuardLogic = (() => {
   // ============================================================
 
   function updateMeta(prevLevel) {
-    if (!state.hasVerifiedLiveReading && !state.demoMode) {
+    if (!state.hasVerifiedLiveReading) {
       $('distToCrit').textContent = 'Waiting for verified sensor data';
       $('trendVal').textContent = '—';
       $('lastUpdate').textContent = 'waiting for ESP32 telemetry';
@@ -100,7 +98,7 @@ window.FloodGuardLogic = (() => {
       : ageMs < 60 * 60 * 1000
         ? `last reading ${Math.floor(ageMs / 60000)} min ago`
         : `last reading ${Math.floor(ageMs / 3600000)} hr ago`;
-    $('lastUpdate').textContent = state.demoMode ? 'test reading' : ageLabel;
+    $('lastUpdate').textContent = ageLabel;
 
     updateBadge(st);
   }
@@ -150,39 +148,6 @@ window.FloodGuardLogic = (() => {
 
 
   // ============================================================
-  // 6. SEND AUTOMATIC SMS WARNING
-  // ============================================================
-  // Generates an automatic warning message based on the
-  // current water-level status.
-  //
-  // CRITICAL:
-  // Sends an evacuation warning.
-  //
-  // WARNING:
-  // Sends a monitoring and safety warning.
-  // ============================================================
-
-  function sendAutomaticSms(st, v) {
-    const levelText = formatMeters(v);
-
-    const message = st.key === 'critical'
-      ? `FLOODGUARD EVACUATE: Bilog Falls water level is ${levelText}. Evacuate the falls area and follow MDRRMO instructions.`
-      : `FLOODGUARD WARNING: Bilog Falls water level is ${levelText}. Avoid the water's edge and monitor official updates.`;
-
-    fireChannel(
-      'chanSMS',
-      'chanSMSState',
-      'sent · 184 recipients',
-      1400
-    );
-
-    uiApi.toast(
-      'Automatic SMS response sent: ' + message
-    );
-  }
-
-
-  // ============================================================
   // 7. RECORD FLOOD ALERT IN ALERT LOG
   // ============================================================
   // Records the detected alert and displays it in:
@@ -210,10 +175,10 @@ window.FloodGuardLogic = (() => {
     const chanHTML = `
       <span class="chan sent">🖥️ Dashboard</span>
       ${st.key !== 'normal'
-        ? '<span class="chan sent">✉️ Auto SMS</span>'
+        ? `<span class="chan">${state.realtimeTelemetryActive ? '✉️ SMS · server-managed' : '✉️ SMS unavailable'}</span>`
         : ''}
       ${st.key === 'critical'
-        ? '<span class="chan sent">🔊 Siren</span>'
+        ? `<span class="chan">${state.realtimeTelemetryActive ? '🔊 Siren · server-managed' : '🔊 Browser alarm only'}</span>`
         : ''}
     `;
 
@@ -240,14 +205,13 @@ window.FloodGuardLogic = (() => {
 
     const causeHTML = state.currentCause
       ? `<span class="cause-chip">${state.currentCause.icon} ${state.currentCause.label}</span>`
-      : '<span class="cause-chip" style="opacity:0.6">— baseline —</span>';
+      : '<span class="cause-chip" style="opacity:0.6">Cause not identified</span>';
 
     state.alertIdCounter++;
 
-    const deliveryLabel =
-      'Delivered · ' +
-      (2 + Math.random() * 2).toFixed(1) +
-      's';
+    const deliveryLabel = state.realtimeTelemetryActive
+      ? 'Alert recorded · server-managed'
+      : 'Dashboard only · no server link';
 
     const tr = document.createElement('tr');
 
@@ -263,7 +227,7 @@ window.FloodGuardLogic = (() => {
       <td>${chip}</td>
       <td>${causeHTML}</td>
       <td>${chanHTML}</td>
-      <td style="color:#31c48d">
+      <td>
         ${deliveryLabel}
       </td>
     `;
@@ -322,9 +286,6 @@ window.FloodGuardLogic = (() => {
 
     $('alertCountStat').textContent =
       state.alertsToday;
-
-    $('latencyStat').textContent =
-      (2 + Math.random() * 2).toFixed(1) + 's';
 
     if (state.currentUser) {
       uiApi.renderDecisionSupport();
@@ -494,15 +455,15 @@ window.FloodGuardLogic = (() => {
 
       const causeHTML = a.cause
         ? `<span class="cause-chip">${a.cause}</span>`
-        : '<span class="cause-chip" style="opacity:0.6">— baseline —</span>';
+        : '<span class="cause-chip" style="opacity:0.6">Cause not identified</span>';
 
       const chanHTML =
         `<span class="chan sent">🖥️ Dashboard</span>` +
         (a.statusKey !== 'normal'
-          ? '<span class="chan sent">✉️ Auto SMS</span>'
+          ? '<span class="chan">✉️ SMS status not verified</span>'
           : '') +
         (a.statusKey === 'critical'
-          ? '<span class="chan sent">🔊 Siren</span>'
+          ? '<span class="chan">🔊 Siren status not verified</span>'
           : '');
 
       const tr = document.createElement('tr');
@@ -517,7 +478,7 @@ window.FloodGuardLogic = (() => {
         <td>${chip}</td>
         <td>${causeHTML}</td>
         <td>${chanHTML}</td>
-        <td style="color:#31c48d">
+        <td>
           ${a.delivery}
         </td>
       `;
@@ -830,26 +791,32 @@ window.FloodGuardLogic = (() => {
   function updateSensorStatus() {
     const connPill = $('connPill');
     const connText = $('connText');
+    const dashboardStatus = $('dashboardSensorStatus');
+    const deviceStatus = $('sensorDeviceStatus');
+    const hasSource = state.sensorDevice.connected || state.realtimeTelemetryActive;
+    const ageMs = state.lastTelemetryAt ? Date.now() - state.lastTelemetryAt : Infinity;
+    const delayed = hasSource && ageMs > 2 * 60 * 1000 && ageMs <= 5 * 60 * 1000;
+    const online = hasSource && state.liveTelemetryActive && ageMs <= 2 * 60 * 1000;
+    const status = delayed ? 'delayed' : online ? 'online' : 'offline';
 
-    if (!connPill || !connText) {
-      return;
+    if (connPill) connPill.classList.toggle('offline', status === 'offline');
+    if (connText) {
+      connText.textContent = status === 'delayed'
+        ? 'SENSOR DELAYED'
+        : status === 'online'
+          ? 'SENSOR ONLINE'
+          : 'SENSOR OFFLINE';
     }
-
-    const isConnected = state.sensorDevice.connected;
-    const delayed = state.realtimeTelemetryActive && state.lastTelemetryAt
-      && Date.now() - state.lastTelemetryAt > 2 * 60 * 1000
-      && Date.now() - state.lastTelemetryAt <= 5 * 60 * 1000;
-
-    if (delayed) {
-      connPill.classList.remove('offline');
-      connText.textContent = 'SENSOR DELAYED';
-    } else if (isConnected) {
-      connPill.classList.remove('offline');
-      connText.textContent = 'SENSOR ONLINE';
-
-    } else {
-      connPill.classList.add('offline');
-      connText.textContent = 'SENSOR OFFLINE';
+    if (dashboardStatus) {
+      dashboardStatus.textContent = status === 'delayed' ? 'Delayed' : status === 'online' ? 'Online' : 'Offline';
+      dashboardStatus.classList.toggle('ok', status === 'online');
+      dashboardStatus.classList.toggle('warn', status !== 'online');
+    }
+    if (deviceStatus) {
+      deviceStatus.textContent = status === 'delayed' ? '● Delayed' : status === 'online' ? '● Online' : '● Offline';
+      deviceStatus.classList.toggle('online', status === 'online');
+      deviceStatus.classList.toggle('offline', status === 'offline');
+      deviceStatus.classList.toggle('delayed', status === 'delayed');
     }
   }
 
@@ -866,7 +833,6 @@ window.FloodGuardLogic = (() => {
     doLogin,
     fireChannel,
     resetChannels,
-    sendAutomaticSms,
     logAlert,
     setCriticalAlarm,
     setBackupStatus,

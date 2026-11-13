@@ -79,14 +79,27 @@ window.FloodGuardUI = (() => {
     if (!wrap) return;
     const metricsHTML = '';
 
+    if (!state.hasVerifiedLiveReading) {
+      wrap.innerHTML = `
+        <div class="source-primary normal">
+          <div class="s-icon">📡</div>
+          <div>
+            <div class="s-label">Waiting for live telemetry</div>
+            <div class="s-origin">No verified sensor reading</div>
+            <div class="s-desc">A water source or cause cannot be assessed until real sensor data is received.</div>
+          </div>
+        </div>${metricsHTML}`;
+      return;
+    }
+
     if (!state.currentCause) {
       wrap.innerHTML = `
         <div class="source-primary normal">
-          <div class="s-icon">✅</div>
+          <div class="s-icon">ℹ️</div>
           <div>
-            <div class="s-label">No significant inflow detected</div>
-            <div class="s-origin">Water level within baseline range</div>
-            <div class="s-desc">Water-level telemetry remains within the normal operating range and no unusual inflow pattern is currently detected.</div>
+            <div class="s-label">Source diagnosis unavailable</div>
+            <div class="s-origin">No verified source data</div>
+            <div class="s-desc">The current water-level reading is live, but the cause of the level change has not been identified.</div>
           </div>
         </div>${metricsHTML}`;
       return;
@@ -102,7 +115,7 @@ window.FloodGuardUI = (() => {
           <div class="s-desc">${c.desc}</div>
         </div>
       </div>${metricsHTML}
-      <div class="source-confidence">Auto-diagnosed from rate-of-rise correlation (simulated) · confidence <b>${(72 + Math.random() * 20).toFixed(0)}%</b></div>`;
+      <div class="source-confidence">Source information is not independently verified by the water-level sensor.</div>`;
   }
 
   function renderForecast() {
@@ -112,7 +125,7 @@ window.FloodGuardUI = (() => {
     const nextT = config.THRESHOLDS.find((t) => t.min > state.level);
     const sampleCount = Math.min(10, state.history.length);
 
-    if (!state.hasVerifiedLiveReading && !state.demoMode) {
+    if (!state.hasVerifiedLiveReading) {
       wrap.innerHTML = `
         <div class="forecast-headline">
           <div class="f-icon">📡</div>
@@ -198,6 +211,14 @@ window.FloodGuardUI = (() => {
   function renderDecisionSupport() {
     const wrap = $('decisionSupportBody');
     if (!wrap || !state.currentUser) return;
+    if (!state.hasVerifiedLiveReading) {
+      $('dsRoleTag').textContent = 'live sensor data required';
+      wrap.innerHTML = `
+        <span class="ds-priority" style="color:var(--ink-2)">Waiting for telemetry</span>
+        <div class="ds-basis">No response recommendation is shown until a verified sensor reading is received.</div>`;
+      return;
+    }
+
     const st = statusForLevel(state.level);
     const fc = stateApi.computeForecast();
     const nextT = config.THRESHOLDS.find((t) => t.min > state.level);
@@ -260,7 +281,7 @@ window.FloodGuardUI = (() => {
       ctx.fillRect(tubeX, tubeTop, tubeW, yFrom - tubeTop);
     });
 
-    const hasDisplayLevel = state.demoMode || state.hasVerifiedLiveReading;
+    const hasDisplayLevel = state.hasVerifiedLiveReading;
     const pct = hasDisplayLevel ? Math.min(state.level, config.TUBE_MAX_CM) / config.TUBE_MAX_CM : 0;
     const waterY = tubeBottom - pct * tubeH;
     const st = statusForLevel(state.level);
@@ -400,17 +421,36 @@ window.FloodGuardUI = (() => {
     displayedRows.forEach((p) => {
       const st = statusForLevel(p.v);
       const tr = document.createElement('tr');
+      const timestamp = new Intl.DateTimeFormat('en-PH', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      }).format(new Date(p.t));
+      tr.className = 'history-record-row';
+      tr.tabIndex = 0;
+      tr.setAttribute('aria-label', `Open reading details for ${timestamp}, ${formatMeters(p.v)}, ${st.name}`);
+      const openDetails = () => {
+        const dialog = $('historyRecordDialog');
+        if (!dialog) return;
+        $('historyRecordTimestamp').textContent = timestamp;
+        $('historyRecordLevel').textContent = `${Number(p.v).toFixed(1)} cm (${formatMeters(p.v)})`;
+        $('historyRecordStatus').textContent = st.name;
+        if (!dialog.open) dialog.showModal();
+      };
+      tr.addEventListener('click', openDetails);
+      tr.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openDetails();
+        }
+      });
       tr.innerHTML = `
-        <td style="font-family:'Roboto Mono',monospace">${new Intl.DateTimeFormat('en-PH', {
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false
-        }).format(new Date(p.t))}</td>
+        <td style="font-family:'Roboto Mono',monospace">${timestamp}</td>
         <td style="font-family:'Roboto Mono',monospace">${formatMeters(p.v)}</td>
         <td><span class="lvl-chip" style="background:${st.color}22; color:${st.color}; border:1px solid ${st.color}66">${st.name}</span></td>
       `;

@@ -68,8 +68,7 @@ window.FloodGuardState = (() => {
     /**
      * RELATED TO: WATER-LEVEL MONITORING
      */
-    level: 32,
-    target: 32,
+    level: 0,
     wavePhase: 0,
 
     /**
@@ -86,8 +85,7 @@ window.FloodGuardState = (() => {
     /**
      * RELATED TO: RAINFALL / LOCATION MONITORING
      */
-    rainLoc: 2,
-    rainLocT: 2,
+    rainLoc: 0,
 
     /**
      * RELATED TO: FLOOD ALERT SYSTEM
@@ -119,9 +117,7 @@ window.FloodGuardState = (() => {
      */
     liveTelemetryActive: false,
     realtimeTelemetryActive: false,
-    demoMode: false,
     hasVerifiedLiveReading: false,
-    lastRealtimeLevel: null,
     telemetrySyncing: false,
     lastTelemetryAt: 0,
     lastTelemetryPublishAt: 0,
@@ -174,53 +170,6 @@ window.FloodGuardState = (() => {
 
   /**
    * ============================================================
-   * RELATED TO: WATER-LEVEL HISTORY / GRAPH
-   *
-   * Creates initial sample water-level records.
-   *
-   * Connected to:
-   * - Water-level chart
-   * - Historical monitoring
-   * - Dashboard graph
-   * - Forecasting
-   * ============================================================
-   */
-  function seedHistory() {
-
-    const now = Date.now();
-
-    state.history = [];
-
-    for (let i = 19; i >= 0; i--) {
-
-      state.history.push({
-        t: now - i * 180000,
-        v: 30 + Math.sin(i / 4) * 4 + Math.random() * 3
-      });
-
-    }
-  }
-
-
-  /**
-   * ============================================================
-   * RELATED TO: SENSOR DATA SIMULATION
-   *
-   * Generates a random value between two numbers.
-   *
-   * Connected to:
-   * - Simulated sensor readings
-   * - Rainfall simulation
-   * - Testing FloodGuard without physical hardware
-   * ============================================================
-   */
-  function randRange(a, b) {
-    return a + Math.random() * (b - a);
-  }
-
-
-  /**
-   * ============================================================
    * RELATED TO: FLOOD RISK / WATER-LEVEL CLASSIFICATION
    *
    * Determines the current flood status based on
@@ -265,52 +214,6 @@ window.FloodGuardState = (() => {
    */
   function formatMeters(value, decimals = 2) {
     return config.formatMeters(value, decimals);
-  }
-
-
-  /**
-   * ============================================================
-   * RELATED TO: FLOOD CAUSE / WEATHER EVENT MONITORING
-   *
-   * Selects a possible local cause of increasing water level.
-   *
-   * Connected to:
-   * - Heavy rainfall
-   * - Weather conditions
-   * - Flood cause indicator
-   * - Monitoring dashboard
-   * ============================================================
-   */
-  function pickCause() {
-
-    const localCauses = config.CAUSES;
-
-    state.currentCause =
-      localCauses[Math.floor(Math.random() * localCauses.length)];
-
-    state.rainLocT = randRange(
-      state.currentCause.loc[0],
-      state.currentCause.loc[1]
-    );
-  }
-
-
-  /**
-   * ============================================================
-   * RELATED TO: FLOOD CAUSE RESET
-   *
-   * Clears the currently detected flood/weather cause.
-   *
-   * Connected to:
-   * - Monitoring reset
-   * - Normal system condition
-   * ============================================================
-   */
-  function clearCause() {
-
-    state.currentCause = null;
-
-    state.rainLocT = 2 + Math.random() * 4;
   }
 
 
@@ -367,8 +270,6 @@ window.FloodGuardState = (() => {
 
         level: state.level,
 
-        target: state.target,
-
         lastStatusKey: state.lastStatusKey,
 
         alertsToday: state.alertsToday,
@@ -384,12 +285,7 @@ window.FloodGuardState = (() => {
           min: t.min
         })),
 
-        rainLoc: state.rainLoc,
-
-        currentCauseKey:
-          state.currentCause
-            ? state.currentCause.key
-            : null
+        rainLoc: state.rainLoc
       }
     };
   }
@@ -478,14 +374,6 @@ window.FloodGuardState = (() => {
 
   /**
    * ============================================================
-   * RELATED TO: INITIAL SYSTEM DATA
-   *
-   * Creates the initial water-level history when
-   * FloodGuard starts.
-   * ============================================================
-   */
-  /**
-   * ============================================================
    * RELATED TO: MODULE EXPORT / OTHER JAVASCRIPT FILES
    *
    * Makes the state and functions available to other
@@ -503,15 +391,11 @@ window.FloodGuardState = (() => {
 
     state,
     $,
-    randRange,
     statusForLevel,
     formatMeters,
-    pickCause,
-    clearCause,
     initials,
     buildBackupPayload,
-    computeForecast,
-    seedHistory
+    computeForecast
 
   };
 

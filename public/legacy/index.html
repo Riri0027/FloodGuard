@@ -64,7 +64,7 @@
     <div class="view-title">Viewing: <b id="viewTitleText">Dashboard</b></div>
 
     <div class="top-right">
-      <div class="status-pill" id="connPill"><span class="dot"></span><span id="connText">SENSOR ONLINE</span></div>
+      <div class="status-pill offline" id="connPill"><span class="dot"></span><span id="connText">SENSOR OFFLINE</span></div>
       <div class="weather-season" id="weatherSeasonPill" title="Weather &amp; season analytics">
         <span class="ws-icon" id="wsIcon">🌦️</span>
         <div class="ws-text">
@@ -111,33 +111,25 @@
           <section class="card gauge-card">
             <h2 class="card-title-full">Live Water Level <small id="lastUpdate">updated just now</small></h2>
             <div class="gauge-wrap"><canvas id="tubeCanvas" width="220" height="360"></canvas></div>
-            <div class="status-badge" id="statusBadge">NORMAL</div>
+            <div class="status-badge" id="statusBadge">WAITING</div>
             <div class="threshold-legend" aria-label="Water-level identification"><span class="normal"><i></i>Green · Normal</span><span class="alert"><i></i>Yellow · Warning</span><span class="critical"><i></i>Red · Evacuate</span></div>
             <div class="reading-label">Current reading</div>
-            <div class="reading"><span id="levelValue">0.32</span><small> m</small></div>
+            <div class="reading"><span id="levelValue">—</span><small> m</small></div>
             <div class="gauge-meta">
-              <div class="meta-item"><div class="k">Trend</div><div class="v" id="trendVal">steady</div></div>
-              <div class="meta-item"><div class="k">Distance to next level</div><div class="v" id="distToCrit">0.43 m</div></div>
+              <div class="meta-item"><div class="k">Trend</div><div class="v" id="trendVal">—</div></div>
+              <div class="meta-item"><div class="k">Distance to next level</div><div class="v" id="distToCrit">Waiting for sensor data</div></div>
             </div>
             <div class="device-line">Sensor unit: JSN-SR04T waterproof ultrasonic · ESP32 microcontroller · SIM800L GSM fallback · solar + battery powered</div>
-            <div class="test-mode-panel" id="testModePanel">
-              <button class="small-btn" id="testModeBtn" type="button" aria-pressed="false">Enable test mode</button>
-              <span id="testModeStatus">Live mode — real sensor data only</span>
-            </div>
-            <div class="sim-controls" id="simControls" hidden>
-              <button class="primary btn-with-icon" id="btnRise"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12"/><path d="m8 8 4-4 4 4"/><path d="M6 16h12"/></svg>Simulate rising flood</button>
-              <button class="btn-with-icon" id="btnCalm"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V8"/><path d="m8 12 4 4 4-4"/><path d="M6 4h12"/></svg>Return to normal</button>
-            </div>
           </section>
 
           <section class="card">
-            <h2>Water Level Trend <small>last 20 readings · 3 min intervals</small></h2>
+            <h2>Water Level Trend <small>up to 40 verified readings · actual timestamps</small></h2>
             <canvas id="trendChart" height="230"></canvas>
             <div class="stat-row">
               <div class="stat"><div class="k">Sensor status</div><div class="v ok" id="dashboardSensorStatus">Offline</div><div class="sub" id="dashboardSensorLabel">JSN-SR04T · ESP32</div></div>
-              <div class="stat"><div class="k">Alert latency</div><div class="v" id="latencyStat">3.1s</div><div class="sub">reading â†’ notification sent</div></div>
+              <div class="stat"><div class="k">Alert latency</div><div class="v" id="latencyStat">—</div><div class="sub">measured after a live alert</div></div>
               <div class="stat"><div class="k">Alerts today</div><div class="v" id="alertCountStat">0</div><div class="sub">across all channels</div></div>
-              <div class="stat"><div class="k">Uptime (30d)</div><div class="v ok">99.4%</div><div class="sub">sensor + link availability</div></div>
+              <div class="stat"><div class="k">Uptime (30d)</div><div class="v" id="uptimeStat">—</div><div class="sub">awaiting verified device history</div></div>
             </div>
           </section>
         </div>
@@ -205,6 +197,25 @@
         </section>
       </section>
 
+      <dialog class="user-dialog history-detail-dialog" id="historyRecordDialog" aria-labelledby="historyRecordTitle">
+        <form method="dialog">
+          <div class="dialog-heading">
+            <div>
+              <h2 id="historyRecordTitle">Reading details</h2>
+              <p id="historyRecordSubtitle">Full details for this recorded sensor reading.</p>
+            </div>
+            <button class="dialog-close" type="submit" aria-label="Close reading details">×</button>
+          </div>
+          <dl class="history-detail-grid">
+            <div><dt>Date and time</dt><dd id="historyRecordTimestamp"></dd></div>
+            <div><dt>Water level</dt><dd id="historyRecordLevel"></dd></div>
+            <div><dt>Flood status</dt><dd id="historyRecordStatus"></dd></div>
+            <div><dt>Timezone</dt><dd>Asia/Manila</dd></div>
+          </dl>
+          <div class="dialog-actions"><button class="small-btn primary" type="submit">Close</button></div>
+        </form>
+      </dialog>
+
       <!-- ===================== ALERT LOGS VIEW ===================== -->
       <section class="view-section" id="view-alerts">
         <section class="card">
@@ -247,10 +258,11 @@
         </section>
 
         <section class="card section-spaced">
-          <h2>Export Dashboard Session <small>local view snapshot · JSON file</small></h2>
-          <p class="intro-copy">Exports the dashboard's locally loaded history and report view for reference. This is not a Firebase backup and cannot restore operational telemetry, alerts, user accounts, or server alert policy.</p>
+          <h2>Export Dashboard Session <small>local snapshot for sharing or restore</small></h2>
+          <p class="intro-copy">Download a PDF snapshot for sharing or a JSON backup that can be imported later. These files include locally loaded dashboard data and are not a Firebase backup.</p>
           <div class="report-actions">
-            <button class="small-btn btn-with-icon" id="backupDataBtn"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m8 9 4 4 4-4"/><path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>Backup data (.json)</button>
+            <button class="small-btn btn-with-icon" id="backupPdfBtn" type="button"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>Export PDF</button>
+            <button class="small-btn btn-with-icon" id="backupDataBtn" type="button"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m8 9 4 4 4-4"/><path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>Backup data (.json)</button>
             <button class="small-btn btn-with-icon" id="importDataBtn"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"/><path d="m8 13 4-4 4 4"/><path d="M5 5v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5"/></svg>Import data</button>
             <input type="file" id="importDataInput" accept="application/json" hidden>
           </div>
@@ -281,4 +293,3 @@
 <script src="assets/scripts/main.js"></script>
 </body>
 </html>
-

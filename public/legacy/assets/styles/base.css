@@ -382,20 +382,6 @@ main.content{flex:1; min-width:0; padding:clamp(14px, 2.5vw, 28px) clamp(12px, 3
   text-align:left; line-height:1.5;
 }
 
-.sim-controls{width:100%; margin-top:16px; display:flex; gap:8px;}
-.sim-controls[hidden]{display:none;}
-.test-mode-panel{width:100%; margin-top:16px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; background:rgba(255,255,255,0.035);}
-.test-mode-panel span{font-family:'Roboto Mono',monospace; font-size:0.62rem; color:var(--ink-2); text-align:right;}
-body.test-mode .test-mode-panel{border-color:rgba(245,166,35,0.8); background:rgba(245,166,35,0.12);}
-body.test-mode .test-mode-panel span{color:#f8d98a; font-weight:700;}
-.sim-controls button{
-  font-size:0.76rem; font-weight:500; border-radius:9px; border:1px solid rgba(255,255,255,0.12); padding:9px 12px;
-  background:rgba(255,255,255,0.06); color:var(--ink-1); cursor:pointer; flex:1;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
-}
-.sim-controls button:hover{border-color:rgba(111,208,242,0.65); color:var(--ink-0); background:rgba(58,167,214,0.12);}
-.sim-controls button.primary{background:linear-gradient(135deg, rgba(111,208,242,0.95), rgba(58,167,214,0.9)); color:#f7fcff; border:none; box-shadow:0 8px 20px rgba(58,167,214,0.16);}
-
 canvas{width:100%; display:block;}
 
 .stat-row{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:18px;}
@@ -637,6 +623,12 @@ tbody tr.fade-in{animation:fadeIn .4s ease;}
 .dialog-field .text-input{width:100%;}
 .dialog-actions{display:flex; justify-content:flex-end; gap:9px; margin-top:22px;}
 .dialog-actions .primary{background:linear-gradient(135deg, rgba(111,208,242,0.95), rgba(58,167,214,0.9)); color:#f7fcff; border:none;}
+.history-record-row{cursor:pointer;}
+.history-record-row:focus-visible{outline:2px solid var(--water); outline-offset:-2px;}
+.history-detail-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0;}
+.history-detail-grid>div{padding:13px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,0.035);}
+.history-detail-grid dt{margin:0 0 7px; color:var(--ink-2); font-size:.68rem; text-transform:uppercase; letter-spacing:.45px;}
+.history-detail-grid dd{margin:0; color:var(--ink-0); font-size:.9rem; font-weight:600; overflow-wrap:anywhere;}
 
 /* Report Modal | Fullscreen report preview with back and download buttons */
 .report-modal{width:min(900px, 95vw); height:min(85vh, 85dvh); margin:auto; padding:0; border:1px solid var(--line); border-radius:16px; background:var(--navy-900); box-shadow:0 24px 56px rgba(0,0,0,0.62); display:flex; flex-direction:column;}
@@ -776,11 +768,7 @@ footer b{color:var(--ink-1);}
   .forecast-metrics{grid-template-columns:1fr; gap:9px;}
   .hstat, .stat{padding:11px 12px;}
 
-  .sim-controls,
   .hero-actions{flex-direction:column;}
-  .test-mode-panel{align-items:stretch; flex-direction:column;}
-  .test-mode-panel span{text-align:left;}
-  .sim-controls button,
   .hero-actions button{width:100%;}
   /* .report-actions mobile width rule moved to reports.css */
 
@@ -1006,8 +994,8 @@ main.content { width: 100%; }
   .source-primary, .forecast-headline { padding: 12px; gap: 10px; }
   .source-primary .s-icon { flex: 0 0 auto; }
   .forecast-metrics { grid-template-columns: 1fr; }
-  .sim-controls, .hero-actions { flex-direction: column; }
-  .sim-controls button, .hero-actions button { width: 100%; }
+  .hero-actions { flex-direction: column; }
+  .hero-actions button { width: 100%; }
   .dialog-actions, .report-modal-actions, .pdf-report-footer { flex-wrap: wrap; }
   .dialog-actions .small-btn, .report-modal-actions .small-btn, .pdf-report-footer .small-btn { flex: 1 1 130px; }
   .user-dialog, .report-modal, .pdf-report-modal { width: calc(100vw - 24px); }
@@ -1091,11 +1079,11 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   box-shadow: 0 12px 22px rgba(0, 0, 0, 0.18);
 }
 
-.small-btn, .sim-controls button, .hero-actions button, .login-btn {
+.small-btn, .hero-actions button, .login-btn {
   transition: transform .18s ease, box-shadow .18s ease, filter .18s ease, border-color .18s ease, background .18s ease;
 }
-.small-btn:hover, .sim-controls button:hover, .hero-actions button:hover, .login-btn:hover { transform: translateY(-2px); }
-.small-btn:active, .sim-controls button:active, .hero-actions button:active, .login-btn:active { transform: translateY(0) scale(.98); }
+.small-btn:hover, .hero-actions button:hover, .login-btn:hover { transform: translateY(-2px); }
+.small-btn:active, .hero-actions button:active, .login-btn:active { transform: translateY(0) scale(.98); }
 
 tbody tr { transition: background .18s ease, color .18s ease; }
 tbody tr:hover { background: rgba(111, 208, 242, 0.07); }
@@ -1142,6 +1130,7 @@ tbody tr:hover { background: rgba(111, 208, 242, 0.07); }
   .role-hero::before { right: -180px; }
   .login-card { border-radius: 18px; }
   .weather-day { min-width: 0; }
+  .history-detail-grid{grid-template-columns:1fr;}
 }
 
 @media (prefers-reduced-motion: reduce) {
