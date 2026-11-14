@@ -391,19 +391,6 @@
           hour: '2-digit', minute: '2-digit', hour12: true
         }).format(new Date(latestReading.t))
       : null;
-    const elapsedLabel = (() => {
-      if (!latestReading) return null;
-      const totalMinutes = Math.floor(ageMs / 60000);
-      if (totalMinutes < 60) return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`;
-      const totalHours = Math.floor(totalMinutes / 60);
-      if (totalHours < 24) {
-        const remainingMinutes = totalMinutes % 60;
-        return `${totalHours} hour${totalHours === 1 ? '' : 's'}${remainingMinutes ? ` and ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}` : ''}`;
-      }
-      const days = Math.floor(totalHours / 24);
-      const remainingHours = totalHours % 24;
-      return `${days} day${days === 1 ? '' : 's'}${remainingHours ? ` and ${remainingHours} hour${remainingHours === 1 ? '' : 's'}` : ''}`;
-    })();
     const status = hasRecentReading && hasSource ? 'online' : delayed ? 'delayed' : 'offline';
 
     if (status === 'online') {
@@ -419,22 +406,22 @@
     notice.hidden = false;
     notice.classList.toggle('offline', status === 'offline');
     notice.textContent = status === 'delayed'
-      ? `No new reading-log entry for ${elapsedLabel}. The most recent reading was at ${lastReadingTime}; check the sensor connection and network.`
+      ? `No new reading-log entry for over 2 minutes. The most recent reading was at ${lastReadingTime}; check the sensor connection and network.`
       : !hasSource
         ? latestReading
-          ? `No live sensor connection is available to this dashboard. The latest reading was ${elapsedLabel} ago, at ${lastReadingTime}; the device's physical connection cannot be confirmed here.`
+          ? `No live sensor connection is available to this dashboard. The most recent reading-log entry was at ${lastReadingTime}; the device's physical connection cannot be confirmed here.`
           : 'No sensor readings are recorded in the reading log, and no live sensor connection is available. Device status cannot be confirmed.'
         : latestReading
-          ? `No new reading-log entry for ${elapsedLabel}. The most recent reading was at ${lastReadingTime}; check the device connection and network.`
+          ? `No new reading-log entry for over 5 minutes. The most recent reading was at ${lastReadingTime}; check the device connection and network.`
           : 'The live telemetry feed has not added a reading to the log yet. Sensor status is unconfirmed.';
 
     if (sensorNoticeStatus === 'online') {
       ui.toast(status === 'delayed'
-        ? `No new reading-log entry for ${elapsedLabel}. The last reading was at ${lastReadingTime}.`
+        ? `No new reading-log entry for over 2 minutes. The last reading was at ${lastReadingTime}.`
         : !hasSource
-          ? `No live sensor connection is available to the dashboard. The latest reading was ${elapsedLabel} ago.`
+          ? 'No live sensor connection is available to the dashboard. Sensor disconnection cannot be confirmed.'
           : latestReading
-            ? `No new reading-log entry for ${elapsedLabel}. The last reading was at ${lastReadingTime}.`
+            ? `No new reading-log entry for over 5 minutes. The last reading was at ${lastReadingTime}.`
             : 'The live telemetry feed has not added a reading to the log. Sensor status is unconfirmed.');
     }
     sensorNoticeStatus = status;
