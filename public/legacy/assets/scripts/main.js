@@ -399,12 +399,18 @@
     notice.classList.toggle('offline', status === 'offline');
     notice.textContent = status === 'delayed'
       ? 'Sensor report delayed. The last water-level reading is more than 2 minutes old; check the sensor connection and network.'
-      : 'Sensor disconnected or no recent report. Live water-level updates are unavailable; check the sensor power and network.';
+      : !hasSource
+        ? 'No live sensor connection is available to this dashboard. The sensor may be disconnected or offline; its physical connection cannot be confirmed here.'
+        : !state.hasVerifiedLiveReading
+          ? 'The live telemetry feed has not provided a verified sensor reading yet. Sensor status is unconfirmed.'
+          : 'The last sensor reading is over 5 minutes old. The dashboard has no current water-level report; check the device connection and network.';
 
     if (sensorNoticeStatus === 'online') {
       ui.toast(status === 'delayed'
         ? 'Sensor report delayed. The dashboard has not received a recent reading.'
-        : 'Sensor disconnected or reporting stopped. Check the sensor connection.');
+        : !hasSource
+          ? 'No live sensor connection is available to the dashboard. Sensor disconnection cannot be confirmed.'
+          : 'The last sensor reading is over 5 minutes old. Current water-level reports are unavailable.');
     }
     sensorNoticeStatus = status;
   }
