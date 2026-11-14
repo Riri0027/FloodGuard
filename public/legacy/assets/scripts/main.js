@@ -387,7 +387,8 @@
     const delayed = hasSource && Boolean(latestReading) && ageMs > 2 * 60 * 1000 && ageMs <= 5 * 60 * 1000;
     const lastReadingTime = latestReading
       ? new Intl.DateTimeFormat('en-PH', {
-          timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: true
+          timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: true
         }).format(new Date(latestReading.t))
       : null;
     const status = hasRecentReading && hasSource ? 'online' : delayed ? 'delayed' : 'offline';
