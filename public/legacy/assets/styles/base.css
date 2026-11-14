@@ -677,6 +677,9 @@ tbody tr.fade-in{animation:fadeIn .4s ease;}
 
 /* CSS ID: TOAST NOTIFICATIONS | HTML: #toastWrap, .toast */
 #toastWrap{position:fixed; top:76px; right:24px; z-index:200; display:flex; flex-direction:column; gap:8px;}
+.sensor-alert{margin:0 0 16px; padding:12px 15px; border:1px solid rgba(245,166,35,0.55); border-left:4px solid var(--warn); border-radius:9px; background:rgba(245,166,35,0.1); color:var(--ink-0); font-size:0.82rem; line-height:1.5;}
+.sensor-alert[hidden]{display:none;}
+.sensor-alert.offline{border-color:rgba(232,86,63,0.6); border-left-color:var(--crit); background:rgba(232,86,63,0.1);}
 .toast{
   background:var(--navy-800); border:1px solid var(--water); border-left:3px solid var(--water);
   color:var(--ink-0); padding:11px 16px; border-radius:9px; font-size:0.8rem;

@@ -24,6 +24,8 @@
   let serialConnectionEventsBound = false;
   let historyStorageWarningShown = false;
   let resumeAlertOnNextReading = false;
+  let sensorNoticeStatus = 'unknown';
+  let sensorHasBeenLive = false;
   const WEATHER_LOCATION = {
     label: 'Bicol Region · Bilog Falls',
     coordinates: '13.83°N, 123.53°E',
@@ -368,8 +370,43 @@
 
     state.liveTelemetryActive = connected && state.hasVerifiedLiveReading;
     logic.updateSensorStatus();
+    refreshSensorReportNotice();
 
     if (notify) ui.toast(connected ? `Sensor connected: ${label}` : 'Sensor disconnected. Device is offline.');
+  }
+
+  function refreshSensorReportNotice() {
+    const notice = $('sensorReportNotice');
+    if (!notice) return;
+
+    const hasSource = state.sensorDevice.connected || state.realtimeTelemetryActive;
+    const ageMs = state.lastTelemetryAt ? Date.now() - state.lastTelemetryAt : Infinity;
+    const hasRecentReading = state.hasVerifiedLiveReading && ageMs <= 2 * 60 * 1000;
+    const delayed = hasSource && state.hasVerifiedLiveReading && ageMs > 2 * 60 * 1000 && ageMs <= 5 * 60 * 1000;
+    const status = hasRecentReading && hasSource ? 'online' : delayed ? 'delayed' : 'offline';
+
+    if (status === 'online') {
+      notice.hidden = true;
+      if (sensorHasBeenLive && (sensorNoticeStatus === 'delayed' || sensorNoticeStatus === 'offline')) {
+        ui.toast('Sensor reporting has resumed. Live water-level data is current.');
+      }
+      sensorHasBeenLive = true;
+      sensorNoticeStatus = 'online';
+      return;
+    }
+
+    notice.hidden = false;
+    notice.classList.toggle('offline', status === 'offline');
+    notice.textContent = status === 'delayed'
+      ? 'Sensor report delayed. The last water-level reading is more than 2 minutes old; check the sensor connection and network.'
+      : 'Sensor disconnected or no recent report. Live water-level updates are unavailable; check the sensor power and network.';
+
+    if (sensorNoticeStatus === 'online') {
+      ui.toast(status === 'delayed'
+        ? 'Sensor report delayed. The dashboard has not received a recent reading.'
+        : 'Sensor disconnected or reporting stopped. Check the sensor connection.');
+    }
+    sensorNoticeStatus = status;
   }
 
   function showWaitingForLiveData() {
@@ -1113,6 +1150,7 @@
     }
     ui.renderThresholds();
     showWaitingForLiveData();
+    refreshSensorReportNotice();
     ui.renderSourceCard();
     ui.renderForecast();
     if (state.currentUser) {
@@ -1147,6 +1185,7 @@
       logic.updateMeta(state.level);
       ui.renderSourceCard();
       ui.renderForecast();
+      refreshSensorReportNotice();
       if (state.currentUser) ui.renderDecisionSupport();
       if ($('view-historical').classList.contains('active')) {
         ui.drawChartOn($('historyChart'));
