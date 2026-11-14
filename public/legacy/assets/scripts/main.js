@@ -82,6 +82,7 @@
   function recordSensorReading(timestamp, level) {
     state.history.splice(0, state.history.length, ...mergeSensorHistory(state.history, [{ t: timestamp, v: level }]));
     persistSensorHistory();
+    refreshSensorReportNotice();
   }
 
   function renderLastSensorReading() {
@@ -380,9 +381,15 @@
     if (!notice) return;
 
     const hasSource = state.sensorDevice.connected || state.realtimeTelemetryActive;
-    const ageMs = state.lastTelemetryAt ? Date.now() - state.lastTelemetryAt : Infinity;
-    const hasRecentReading = state.hasVerifiedLiveReading && ageMs <= 2 * 60 * 1000;
-    const delayed = hasSource && state.hasVerifiedLiveReading && ageMs > 2 * 60 * 1000 && ageMs <= 5 * 60 * 1000;
+    const latestReading = state.history[state.history.length - 1] || null;
+    const ageMs = latestReading ? Math.max(0, Date.now() - latestReading.t) : Infinity;
+    const hasRecentReading = Boolean(latestReading) && ageMs <= 2 * 60 * 1000;
+    const delayed = hasSource && Boolean(latestReading) && ageMs > 2 * 60 * 1000 && ageMs <= 5 * 60 * 1000;
+    const lastReadingTime = latestReading
+      ? new Intl.DateTimeFormat('en-PH', {
+          timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: true
+        }).format(new Date(latestReading.t))
+      : null;
     const status = hasRecentReading && hasSource ? 'online' : delayed ? 'delayed' : 'offline';
 
     if (status === 'online') {
@@ -398,19 +405,23 @@
     notice.hidden = false;
     notice.classList.toggle('offline', status === 'offline');
     notice.textContent = status === 'delayed'
-      ? 'Sensor report delayed. The last water-level reading is more than 2 minutes old; check the sensor connection and network.'
+      ? `No new reading-log entry for over 2 minutes. The most recent reading was at ${lastReadingTime}; check the sensor connection and network.`
       : !hasSource
-        ? 'No live sensor connection is available to this dashboard. The sensor may be disconnected or offline; its physical connection cannot be confirmed here.'
-        : !state.hasVerifiedLiveReading
-          ? 'The live telemetry feed has not provided a verified sensor reading yet. Sensor status is unconfirmed.'
-          : 'The last sensor reading is over 5 minutes old. The dashboard has no current water-level report; check the device connection and network.';
+        ? latestReading
+          ? `No live sensor connection is available to this dashboard. The most recent reading-log entry was at ${lastReadingTime}; the device's physical connection cannot be confirmed here.`
+          : 'No sensor readings are recorded in the reading log, and no live sensor connection is available. Device status cannot be confirmed.'
+        : latestReading
+          ? `No new reading-log entry for over 5 minutes. The most recent reading was at ${lastReadingTime}; check the device connection and network.`
+          : 'The live telemetry feed has not added a reading to the log yet. Sensor status is unconfirmed.';
 
     if (sensorNoticeStatus === 'online') {
       ui.toast(status === 'delayed'
-        ? 'Sensor report delayed. The dashboard has not received a recent reading.'
+        ? `No new reading-log entry for over 2 minutes. The last reading was at ${lastReadingTime}.`
         : !hasSource
           ? 'No live sensor connection is available to the dashboard. Sensor disconnection cannot be confirmed.'
-          : 'The last sensor reading is over 5 minutes old. Current water-level reports are unavailable.');
+          : latestReading
+            ? `No new reading-log entry for over 5 minutes. The last reading was at ${lastReadingTime}.`
+            : 'The live telemetry feed has not added a reading to the log. Sensor status is unconfirmed.');
     }
     sensorNoticeStatus = status;
   }
@@ -491,6 +502,7 @@
         readings.sort((a, b) => a.t - b.t);
         state.history.splice(0, state.history.length, ...mergeSensorHistory(state.history, readings));
         persistSensorHistory();
+        refreshSensorReportNotice();
         renderLastSensorReading();
         ui.drawChartOn($('trendChart'));
         ui.renderHistoryTable();
