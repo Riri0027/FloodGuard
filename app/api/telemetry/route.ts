@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
   let payload: Record<string, unknown>;
   try { payload = await request.json(); } catch { return NextResponse.json({ error: 'Body must be valid JSON.' }, { status: 400 }); }
   const deviceId = String(payload.deviceId ?? '');
-  const levelCm = Number(payload.levelCm);
+  const levelCm = typeof payload.levelCm === 'number' ? payload.levelCm : Number.NaN;
+  const batteryV = typeof payload.batteryV === 'number' && Number.isFinite(payload.batteryV)
+    ? Number(payload.batteryV.toFixed(2))
+    : null;
   const isLocalDevice = deviceId === runtimeConfig.deviceId;
   const isUpstreamDevice = Boolean(runtimeConfig.upstreamDeviceId) && deviceId === runtimeConfig.upstreamDeviceId;
   if ((!isLocalDevice && !isUpstreamDevice) || !Number.isFinite(levelCm) || levelCm < 0 || levelCm > runtimeConfig.maxLevelCm) return NextResponse.json({ error: 'Invalid telemetry payload.' }, { status: 400 });
@@ -88,7 +91,7 @@ export async function POST(request: NextRequest) {
         ...(sirenCommandPending ? { deliveredCommandId: oldSirenControl.commandId, deliveredAt: now } : {}),
       };
       const sirenActive = nextStatus === 'evacuate' && sirenMode !== 'off';
-      return { ...old, source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV: Number.isFinite(Number(payload.batteryV)) ? Number(payload.batteryV) : null, signal: typeof payload.signal === 'string' ? payload.signal.slice(0, 40) : 'Unknown', isOnline: true, updatedAt: now, health: { status: 'online', checkedAt: now, lastSeenAt: now }, alert, sirenControl, ...(isUpstreamDevice ? { earlyWarning: { enabled: true, trend: trend ? { slopeCmPerMin: Number(trend.slopeCmPerMin.toFixed(2)), samples: trend.samples, measuredAt: now } : null, watchThresholdCm: runtimeConfig.upstreamWatchCm, minimumRiseRateCmPerMin: runtimeConfig.upstreamRiseRateCmPerMin, estimatedLeadTimeMinutes: runtimeConfig.upstreamLeadTimeMinutes } } : {}), siren: { active: sirenActive, expiresAt: sirenActive ? now + runtimeConfig.sirenDurationMs : now } };
+      return { ...old, source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV, signal: typeof payload.signal === 'string' ? payload.signal.slice(0, 40) : 'Unknown', isOnline: true, updatedAt: now, health: { status: 'online', checkedAt: now, lastSeenAt: now }, alert, sirenControl, ...(isUpstreamDevice ? { earlyWarning: { enabled: true, trend: trend ? { slopeCmPerMin: Number(trend.slopeCmPerMin.toFixed(2)), samples: trend.samples, measuredAt: now } : null, watchThresholdCm: runtimeConfig.upstreamWatchCm, minimumRiseRateCmPerMin: runtimeConfig.upstreamRiseRateCmPerMin, estimatedLeadTimeMinutes: runtimeConfig.upstreamLeadTimeMinutes } } : {}), siren: { active: sirenActive, expiresAt: sirenActive ? now + runtimeConfig.sirenDurationMs : now } };
     });
     const current = result.snapshot.val() as Record<string, any>;
     await Promise.all([
