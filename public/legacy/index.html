@@ -117,9 +117,9 @@
             <div class="reading-label">Current reading</div>
             <div class="reading"><span id="levelValue">—</span><small> cm</small></div>
             <div class="live-data-control-panel" id="liveDataControlPanel" hidden>
-              <p id="liveDataControlMessage">Reconnect this dashboard to the ESP32's latest server reading. New readings arrive on the device's normal send interval; this does not reset the sensor, clear history, or control the dashboard siren.</p>
+              <p id="liveDataControlMessage">Restart waits for a newer ESP32 reading and updates the live water level when it arrives. The device sends on its configured interval; history and the dashboard siren are unaffected.</p>
               <div class="live-data-control-actions">
-                <button class="small-btn" id="restartLiveDataBtn" type="button">Reconnect live water-level feed</button>
+                <button class="small-btn" id="restartLiveDataBtn" type="button">Restart for fresh reading</button>
               </div>
             </div>
             <div class="gauge-meta">

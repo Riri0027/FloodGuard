@@ -18,6 +18,9 @@
   let LIVE_READING_TIMEOUT_MS = 5 * 60 * 1000;
   let latestDeviceReading = null;
   let liveDataRestartInProgress = false;
+  let awaitingFreshReadingAfterRestart = false;
+  let freshReadingBaseline = 0;
+  let freshReadingTimeout = null;
   const MAX_HISTORY_RECORDS = 40;
   let stopRealtimeTelemetry = null;
   let stopRealtimeHistory = null;
@@ -516,8 +519,18 @@
     if (!panel || !restartButton || !message) return;
 
     panel.hidden = !state.currentUser || !latestDeviceReading || latestDeviceReading.alert?.status !== 'evacuate';
-    restartButton.disabled = sensorConnectionInProgress || liveDataRestartInProgress;
+    restartButton.disabled = sensorConnectionInProgress || liveDataRestartInProgress || awaitingFreshReadingAfterRestart;
     if (panel.hidden) return;
+  }
+
+  function finishFreshReadingWait(messageText) {
+    if (!awaitingFreshReadingAfterRestart) return;
+    awaitingFreshReadingAfterRestart = false;
+    if (freshReadingTimeout) clearTimeout(freshReadingTimeout);
+    freshReadingTimeout = null;
+    const message = $('liveDataControlMessage');
+    if (message) message.textContent = messageText;
+    renderLiveDataControl();
   }
 
   async function restartLiveWaterLevelData() {
@@ -525,16 +538,22 @@
     const message = $('liveDataControlMessage');
     if (!button || !message || button.disabled) return;
 
+    freshReadingBaseline = readRealtimeTimestamp(latestDeviceReading && latestDeviceReading.updatedAt) || state.lastTelemetryAt;
+    awaitingFreshReadingAfterRestart = true;
     liveDataRestartInProgress = true;
     button.disabled = true;
-    message.textContent = 'Restarting the dashboard live water-level feed…';
+    message.textContent = 'Restarting the dashboard feed and waiting for a newer ESP32 reading…';
+    freshReadingTimeout = setTimeout(() => {
+      finishFreshReadingWait('No newer reading arrived before the feed became stale. Check the sensor and connection, then try again.');
+    }, LIVE_READING_TIMEOUT_MS);
     try {
       stopRealtimeDatabaseTelemetry();
       await startRealtimeTelemetry();
       if (!stopRealtimeTelemetry) throw new Error('Live telemetry subscription was not created.');
-      message.textContent = 'Dashboard feed reconnected. It shows the latest server reading; new readings arrive on the ESP32\'s next send. Reading history is unchanged.';
+      if (awaitingFreshReadingAfterRestart) message.textContent = 'Dashboard feed restarted. Waiting for the next new sensor reading; existing history is unchanged.';
     } catch (error) {
-      message.textContent = 'Unable to restart the live water-level feed. Check the dashboard connection.';
+      finishFreshReadingWait('Unable to restart the dashboard feed. Check the connection, then try again.');
+      message.textContent = 'Unable to restart the dashboard feed. Check the connection, then try again.';
       ui.toast(message.textContent);
     } finally {
       liveDataRestartInProgress = false;
@@ -618,6 +637,12 @@
         state.liveTelemetryActive = online;
         state.realtimeTelemetryActive = true;
         renderLiveDataControl();
+        if (awaitingFreshReadingAfterRestart && timestamp > freshReadingBaseline) {
+          const freshTime = new Intl.DateTimeFormat('en-PH', {
+            timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+          }).format(new Date(timestamp));
+          finishFreshReadingWait(`Fresh ESP32 reading received at ${freshTime}. Existing reading history is unchanged.`);
+        }
 
         recordSensorReading(timestamp, liveLevel);
 
