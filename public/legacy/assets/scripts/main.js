@@ -13,6 +13,8 @@
   const config = window.FloodGuardConfig;
   const state = stateApi.state;
   const $ = stateApi.$;
+  let activeDeviceId = 'FG-001';
+  let confirmedAlertStatus = 'normal';
   let LIVE_READING_TIMEOUT_MS = 5 * 60 * 1000;
   let latestDeviceReading = null;
   let sirenControlRequestInProgress = false;
@@ -280,6 +282,9 @@
     const response = await fetch('/api/system-config', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
     if (!response.ok) throw new Error('Unable to load server alert policy.');
     const policy = await response.json();
+    activeDeviceId = String(policy.deviceId || activeDeviceId);
+    const deviceIdCell = document.querySelector('.sensor-id');
+    if (deviceIdCell) deviceIdCell.textContent = activeDeviceId;
     config.TUBE_MAX_CM = Number(policy.maxLevelCm) || config.TUBE_MAX_CM;
     LIVE_READING_TIMEOUT_MS = Number(policy.offlineAfterMs) || LIVE_READING_TIMEOUT_MS;
     const warning = config.THRESHOLDS.find((item) => item.key === 'alert');
@@ -437,9 +442,9 @@
   function showWaitingForLiveData() {
     state.hasVerifiedLiveReading = false;
     state.realtimeTelemetryActive = false;
-    $('sensorLastReading').textContent = '—';
     state.liveTelemetryActive = false;
     $('levelValue').textContent = '—';
+    $('sensorLastReading').textContent = '—';
     renderSirenControls(latestDeviceReading, false);
     logic.updateMeta(state.level);
     ui.drawTube();
@@ -457,15 +462,17 @@
   }
 
   function realtimeHealthStatus(reading, timestamp) {
-    if (!Number.isFinite(timestamp) || timestamp <= 0) return 'offline';
     if (reading.isOnline === false) return 'offline';
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return 'offline';
     const age = Date.now() - timestamp;
     if (age > LIVE_READING_TIMEOUT_MS) return 'offline';
     return 'online';
   }
 
   function processCurrentStatus(forceResponse = false) {
-    const st = stateApi.statusForLevel(state.level);
+    const st = state.realtimeTelemetryActive
+      ? dashboardStatusFromServer(confirmedAlertStatus)
+      : stateApi.statusForLevel(state.level);
     if (st.key !== state.lastStatusKey || (forceResponse && st.key !== 'normal')) {
       logic.resetChannels();
       if (st.key !== 'normal') {
@@ -486,6 +493,11 @@
       }
       state.lastStatusKey = st.key;
     }
+  }
+
+  function dashboardStatusFromServer(status) {
+    const key = status === 'warning' ? 'alert' : status === 'evacuate' ? 'critical' : 'normal';
+    return config.THRESHOLDS.find((threshold) => threshold.key === key) || config.THRESHOLDS[0];
   }
 
   function renderSirenControls(reading, deviceOnline) {
@@ -556,9 +568,9 @@
 
     try {
       const firebase = await firebaseServices();
-      const deviceRef = firebase.ref(firebase.rtdb, 'devices/FG-001');
+      const deviceRef = firebase.ref(firebase.rtdb, `devices/${activeDeviceId}`);
       const historyRef = firebase.query(
-        firebase.ref(firebase.rtdb, 'telemetry/FG-001'),
+        firebase.ref(firebase.rtdb, `telemetry/${activeDeviceId}`),
         firebase.limitToLast(40)
       );
 
@@ -592,6 +604,7 @@
 
         if (!reading || reading.levelCm == null || !Number.isFinite(level) || reading.source !== 'floodguard-telemetry-api') {
           if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
+          confirmedAlertStatus = 'normal';
           showWaitingForLiveData();
           setSensorConnectionState(false, { label: 'No live database reading', notify: false });
           return;
@@ -602,11 +615,23 @@
           resumeAlertOnNextReading = true;
         }
         const previousLevel = state.level;
+        confirmedAlertStatus = reading.alert && reading.alert.status || 'normal';
         const battery = Number(reading.batteryV);
         const signal = typeof reading.signal === 'string' && reading.signal.trim() ? reading.signal.trim() : 'Unknown';
         const healthStatus = realtimeHealthStatus(reading, timestamp);
         const online = healthStatus === 'online';
-        renderSirenControls(reading, online);
+        if (!online) {
+          renderSirenControls(reading, false);
+          showWaitingForLiveData();
+          setSensorConnectionState(false, {
+            label: 'No fresh sensor reading',
+            lastConnectionAt: timestamp,
+            battery: '—',
+            signal: '—',
+            notify: false
+          });
+          return;
+        }
         const sirenActive = Boolean(reading.siren && reading.siren.active && Number(reading.siren.expiresAt) > Date.now());
 
         const liveLevel = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
@@ -615,11 +640,12 @@
         state.lastTelemetryAt = timestamp;
         state.liveTelemetryActive = online;
         state.realtimeTelemetryActive = true;
+        renderSirenControls(reading, online);
 
         recordSensorReading(timestamp, liveLevel);
 
         setSensorConnectionState(online, {
-          label: healthStatus === 'delayed' ? 'Telemetry delayed' : 'Firebase Realtime Database · FG-001',
+          label: `Firebase Realtime Database · ${activeDeviceId}`,
           lastConnectionAt: timestamp,
           battery: Number.isFinite(battery) ? `${battery.toFixed(1)}V` : '—',
           signal,
@@ -629,7 +655,7 @@
 
         $('levelValue').textContent = state.level.toFixed(1);
         renderLastSensorReading();
-        logic.updateMeta(previousLevel);
+        logic.updateMeta(previousLevel, dashboardStatusFromServer(confirmedAlertStatus));
         if (resumeAlertOnNextReading && online) {
           resumeAlertOnNextReading = false;
           processCurrentStatus(true);
@@ -1111,6 +1137,7 @@
         await firebase.signOut(firebase.auth);
         stopRealtimeDatabaseTelemetry();
         state.currentUser = null;
+        confirmedAlertStatus = 'normal';
         renderSirenControls(latestDeviceReading, false);
         $('appShell').classList.remove('active');
         $('loginScreen').style.display = 'flex';
@@ -1145,6 +1172,41 @@
         ui.renderHistoryTable();
       });
     }
+
+    $('exportReadingLogBtn').addEventListener('click', () => {
+      const readings = state.history.slice().reverse();
+      if (!readings.length) {
+        ui.toast('There are no readings to export yet.');
+        return;
+      }
+
+      const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+      const manilaTime = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+      });
+      const rows = [
+        ['Timestamp (Asia/Manila)', 'Timestamp (UTC)', 'Water level (cm)', 'Water level (m)', 'Flood status'],
+        ...readings.map((reading) => [
+          manilaTime.format(new Date(reading.t)),
+          new Date(reading.t).toISOString(),
+          Number(reading.v).toFixed(1),
+          (Number(reading.v) / 100).toFixed(2),
+          stateApi.statusForLevel(reading.v).name
+        ])
+      ];
+      const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      link.href = url;
+      link.download = `floodguard-reading-log-${stamp}.csv`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      ui.toast(`Exported ${readings.length} reading${readings.length === 1 ? '' : 's'}.`);
+    });
 
     $('backupDataBtn').addEventListener('click', () => {
       try {
@@ -1267,6 +1329,18 @@
         showWaitingForLiveData();
         state.sensorDevice.reader = null;
         serialReader.cancel().catch((error) => console.warn('Unable to restart stalled sensor reader:', error));
+        return;
+      }
+
+      if (state.hasVerifiedLiveReading && Date.now() - state.lastTelemetryAt > LIVE_READING_TIMEOUT_MS) {
+        showWaitingForLiveData();
+        setSensorConnectionState(false, {
+          label: 'No fresh sensor reading',
+          lastConnectionAt: state.lastTelemetryAt,
+          battery: '—',
+          signal: '—',
+          notify: false
+        });
         return;
       }
 

@@ -62,7 +62,7 @@ window.FloodGuardLogic = (() => {
   // - Current alert badge
   // ============================================================
 
-  function updateMeta(prevLevel) {
+  function updateMeta(prevLevel, confirmedStatus = null) {
     if (!state.hasVerifiedLiveReading) {
       $('distToCrit').textContent = 'Waiting for verified sensor data';
       $('trendVal').textContent = '—';
@@ -73,7 +73,7 @@ window.FloodGuardLogic = (() => {
       badge.style.background = 'rgba(154,167,199,0.12)';
       return;
     }
-    const st = statusForLevel(state.level);
+    const st = confirmedStatus || statusForLevel(state.level);
 
     const nextT = config.THRESHOLDS.find(
       (t) => t.min > state.level
