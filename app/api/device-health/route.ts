@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
         isOnline: false,
         health: { status: 'offline', checkedAt: now, lastSeenAt: updatedAt || null },
       });
-      await db.ref(`publicStatus/${deviceId}`).update({ isOnline: false, healthCheckedAt: now });
+      await db.ref(`publicStatus/${deviceId}`).update({ isOnline: false, healthCheckedAt: now, offlineAfterMs: runtimeConfig.offlineAfterMs });
       await db.ref('alerts').push({ type: 'device-offline', deviceId, createdAt: now, lastSeenAt: updatedAt || null });
       offline.push(deviceId);
     }

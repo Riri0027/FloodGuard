@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       db.ref(`telemetry/${deviceId}`).push({ source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV: current.batteryV, signal: current.signal, recordedAt: now }),
       // This intentionally contains only information appropriate for a public
       // status board. Operational data stays under the authenticated paths.
-      db.ref(`publicStatus/${deviceId}`).set({ levelCm: current.levelCm, status: current.alert.status, isOnline: true, updatedAt: current.updatedAt }),
+      db.ref(`publicStatus/${deviceId}`).set({ levelCm: current.levelCm, status: current.alert.status, isOnline: true, updatedAt: current.updatedAt, offlineAfterMs: runtimeConfig.offlineAfterMs }),
     ]);
     const sms = await deliverPendingAlert(db, deviceId);
     return NextResponse.json({ accepted: true, status: current.alert.status, confirmation: { candidate: current.alert.candidateStatus, readings: current.alert.candidateReadings, required: isUpstreamDevice ? runtimeConfig.upstreamWatchConfirmationReadings : runtimeConfig.confirmationReadings }, earlyWarning: isUpstreamDevice ? current.earlyWarning : null, sms: sms ?? { configured: Boolean(process.env.SEMAPHORE_API_KEY), delivered: 0 }, siren: current.siren });

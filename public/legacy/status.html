@@ -35,19 +35,34 @@
       const status = document.getElementById('status');
       const level = document.getElementById('level');
       const updated = document.getElementById('updated');
-      try {
-        const firebase = await window.FloodGuardFirebase.ready;
-        firebase.onValue(firebase.ref(firebase.rtdb, 'publicStatus/FG-001'), (snapshot) => {
-          const data = snapshot.val();
-          const levelCm = Number(data && data.levelCm);
-          const online = Boolean(data && data.isOnline);
-          const state = online && ['normal', 'warning', 'evacuate'].includes(data.status) ? data.status : 'offline';
-          card.className = `status ${state}`;
-          status.textContent = state === 'evacuate' ? 'EVACUATE' : state === 'warning' ? 'WARNING' : state === 'normal' ? 'NORMAL' : 'SENSOR OFFLINE';
-          level.textContent = Number.isFinite(levelCm) ? `${(levelCm / 100).toFixed(2)} m` : '—';
-          updated.textContent = Number(data && data.updatedAt) ? `Last verified reading: ${new Date(data.updatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}` : 'Waiting for a verified device reading.';
-        }, () => { updated.textContent = 'Live status is temporarily unavailable.'; });
-      } catch { updated.textContent = 'Live status is temporarily unavailable.'; }
+      function renderStatus() {
+        const data = window.latestStatus;
+        const levelCm = data && data.levelCm != null ? Number(data.levelCm) : NaN;
+        const updatedAt = Number(data && data.updatedAt);
+        const freshnessWindow = Number(data && data.offlineAfterMs) || 5 * 60 * 1000;
+        const fresh = Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt <= freshnessWindow;
+        const online = Boolean(data && data.isOnline) && fresh;
+        const state = online && ['normal', 'warning', 'evacuate'].includes(data.status) ? data.status : 'offline';
+        card.className = `status ${state}`;
+        status.textContent = state === 'evacuate' ? 'EVACUATE' : state === 'warning' ? 'WARNING' : state === 'normal' ? 'NORMAL' : 'SENSOR OFFLINE';
+        level.textContent = Number.isFinite(levelCm) ? `${(levelCm / 100).toFixed(2)} m` : '—';
+        updated.textContent = updatedAt > 0
+          ? `${fresh ? 'Last verified reading' : 'Last reading (stale)'}: ${new Date(updatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}`
+          : 'Waiting for a verified device reading.';
+      }
+
+      async function refreshStatus() {
+        try {
+          const response = await fetch('/api/public-status', { cache: 'no-store' });
+          if (!response.ok) throw new Error('Status request failed');
+          window.latestStatus = await response.json();
+          renderStatus();
+        } catch {
+          updated.textContent = 'Live status is temporarily unavailable.';
+        }
+      }
+      refreshStatus();
+      setInterval(refreshStatus, 10 * 1000);
     })();
   </script>
 </body>

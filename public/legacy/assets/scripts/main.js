@@ -13,6 +13,7 @@
   const config = window.FloodGuardConfig;
   const state = stateApi.state;
   const $ = stateApi.$;
+  let LIVE_READING_TIMEOUT_MS = 5 * 60 * 1000;
   const SENSOR_HISTORY_STORAGE_KEY = 'floodguard.sensor-history.FG-001.v1';
   const MAX_HISTORY_RECORDS = 40;
   let stopRealtimeTelemetry = null;
@@ -275,6 +276,7 @@
     if (!response.ok) throw new Error('Unable to load server alert policy.');
     const policy = await response.json();
     config.TUBE_MAX_CM = Number(policy.maxLevelCm) || config.TUBE_MAX_CM;
+    LIVE_READING_TIMEOUT_MS = Number(policy.offlineAfterMs) || LIVE_READING_TIMEOUT_MS;
     const warning = config.THRESHOLDS.find((item) => item.key === 'alert');
     const evacuate = config.THRESHOLDS.find((item) => item.key === 'critical');
     if (warning) warning.min = Number(policy.warningCm) || warning.min;
@@ -444,14 +446,14 @@
       const parsed = Date.parse(value);
       if (Number.isFinite(parsed)) return parsed;
     }
-    return Date.now();
+    return 0;
   }
 
   function realtimeHealthStatus(reading, timestamp) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return 'offline';
     if (reading.isOnline === false) return 'offline';
     const age = Date.now() - timestamp;
-    if (age > 5 * 60 * 1000) return 'offline';
-    if (age > 2 * 60 * 1000) return 'delayed';
+    if (age > LIVE_READING_TIMEOUT_MS) return 'offline';
     return 'online';
   }
 
