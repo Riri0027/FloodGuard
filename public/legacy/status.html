@@ -45,10 +45,10 @@
         const state = online && ['normal', 'warning', 'evacuate'].includes(data.status) ? data.status : 'offline';
         card.className = `status ${state}`;
         status.textContent = state === 'evacuate' ? 'EVACUATE' : state === 'warning' ? 'WARNING' : state === 'normal' ? 'NORMAL' : 'SENSOR OFFLINE';
-        level.textContent = Number.isFinite(levelCm) ? `${(levelCm / 100).toFixed(2)} m` : '—';
-        updated.textContent = updatedAt > 0
-          ? `${fresh ? 'Last verified reading' : 'Last reading (stale)'}: ${new Date(updatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}`
-          : 'Waiting for a verified device reading.';
+        level.textContent = online && Number.isFinite(levelCm) ? `${levelCm.toFixed(1)} cm` : '—';
+        updated.textContent = online && updatedAt > 0
+          ? `Live sensor reading: ${new Date(updatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}`
+          : 'No live sensor reading. Waiting for the ESP32 connection.';
       }
 
       async function refreshStatus() {
@@ -58,6 +58,8 @@
           window.latestStatus = await response.json();
           renderStatus();
         } catch {
+          window.latestStatus = null;
+          renderStatus();
           updated.textContent = 'Live status is temporarily unavailable.';
         }
       }

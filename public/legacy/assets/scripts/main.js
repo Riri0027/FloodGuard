@@ -87,9 +87,11 @@
   }
 
   function renderLastSensorReading() {
-    const latest = state.history[state.history.length - 1];
     const sensorReadingEl = $('sensorLastReading');
-    if (latest && sensorReadingEl) sensorReadingEl.textContent = `${(latest.v / 100).toFixed(2)} m`;
+    if (!sensorReadingEl) return;
+    sensorReadingEl.textContent = state.hasVerifiedLiveReading
+      ? `${state.level.toFixed(1)} cm`
+      : '—';
   }
 
   function syncReportData() {
@@ -432,6 +434,7 @@
   function showWaitingForLiveData() {
     state.hasVerifiedLiveReading = false;
     state.realtimeTelemetryActive = false;
+    $('sensorLastReading').textContent = '—';
     state.liveTelemetryActive = false;
     $('levelValue').textContent = '—';
     logic.updateMeta(state.level);
@@ -519,7 +522,7 @@
         const reading = snapshot.val();
         const level = Number(reading && reading.levelCm);
 
-        if (!reading || !Number.isFinite(level) || reading.source !== 'floodguard-telemetry-api') {
+        if (!reading || reading.levelCm == null || !Number.isFinite(level) || reading.source !== 'floodguard-telemetry-api') {
           if (state.hasVerifiedLiveReading) resumeAlertOnNextReading = true;
           showWaitingForLiveData();
           setSensorConnectionState(false, { label: 'No live database reading', notify: false });
@@ -555,7 +558,7 @@
           notify: false
         });
 
-        $('levelValue').textContent = (state.level / 100).toFixed(2);
+        $('levelValue').textContent = state.level.toFixed(1);
         renderLastSensorReading();
         logic.updateMeta(previousLevel);
         if (resumeAlertOnNextReading && online) {
@@ -673,7 +676,7 @@
             state.lastTelemetryAt = timestamp;
             state.liveTelemetryActive = true;
             recordSensorReading(timestamp, sensorLevel);
-            $('levelValue').textContent = (sensorLevel / 100).toFixed(2);
+            $('levelValue').textContent = sensorLevel.toFixed(1);
             logic.updateMeta(previousLevel);
             if (resumeAlertOnNextReading) {
               resumeAlertOnNextReading = false;
