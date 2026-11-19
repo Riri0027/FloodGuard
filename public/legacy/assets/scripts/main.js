@@ -18,7 +18,6 @@
   let LIVE_READING_TIMEOUT_MS = 5 * 60 * 1000;
   let latestDeviceReading = null;
   let liveDataRestartInProgress = false;
-  const SENSOR_HISTORY_STORAGE_KEY = 'floodguard.sensor-history.FG-001.v1';
   const MAX_HISTORY_RECORDS = 40;
   let stopRealtimeTelemetry = null;
   let stopRealtimeHistory = null;
@@ -62,7 +61,7 @@
 
   function persistSensorHistory() {
     try {
-      localStorage.setItem(SENSOR_HISTORY_STORAGE_KEY, JSON.stringify(state.history));
+      localStorage.setItem(sensorHistoryStorageKey(), JSON.stringify(state.history));
     } catch (error) {
       if (!historyStorageWarningShown) {
         console.error('Unable to save local sensor history:', error);
@@ -71,9 +70,13 @@
     }
   }
 
-  function restoreSensorHistory() {
+  function sensorHistoryStorageKey(deviceId = activeDeviceId) {
+    return `floodguard.sensor-history.${deviceId}.v1`;
+  }
+
+  function restoreSensorHistory(deviceId = activeDeviceId) {
     try {
-      const stored = localStorage.getItem(SENSOR_HISTORY_STORAGE_KEY);
+      const stored = localStorage.getItem(sensorHistoryStorageKey(deviceId));
       if (!stored) return [];
       const parsed = JSON.parse(stored);
       if (!Array.isArray(parsed)) throw new Error('Stored sensor history is not a list.');
@@ -281,7 +284,13 @@
     const response = await fetch('/api/system-config', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
     if (!response.ok) throw new Error('Unable to load server alert policy.');
     const policy = await response.json();
-    activeDeviceId = String(policy.deviceId || activeDeviceId);
+    const configuredDeviceId = String(policy.deviceId || activeDeviceId);
+    if (configuredDeviceId !== activeDeviceId) {
+      activeDeviceId = configuredDeviceId;
+      state.history.splice(0, state.history.length, ...restoreSensorHistory(activeDeviceId));
+      renderLastSensorReading();
+      ui.renderHistoryTable();
+    }
     const deviceIdCell = document.querySelector('.sensor-id');
     if (deviceIdCell) deviceIdCell.textContent = activeDeviceId;
     config.TUBE_MAX_CM = Number(policy.maxLevelCm) || config.TUBE_MAX_CM;
@@ -507,9 +516,8 @@
     if (!panel || !restartButton || !message) return;
 
     panel.hidden = !state.currentUser || !latestDeviceReading || latestDeviceReading.alert?.status !== 'evacuate';
-    if (panel.hidden) return;
-
     restartButton.disabled = sensorConnectionInProgress || liveDataRestartInProgress;
+    if (panel.hidden) return;
   }
 
   async function restartLiveWaterLevelData() {
@@ -524,7 +532,7 @@
       stopRealtimeDatabaseTelemetry();
       await startRealtimeTelemetry();
       if (!stopRealtimeTelemetry) throw new Error('Live telemetry subscription was not created.');
-      message.textContent = 'Live water-level feed restarted. The dashboard siren remains automatic during evacuation.';
+      message.textContent = 'Dashboard feed reconnected. It shows the latest server reading; new readings arrive on the ESP32\'s next send. Reading history is unchanged.';
     } catch (error) {
       message.textContent = 'Unable to restart the live water-level feed. Check the dashboard connection.';
       ui.toast(message.textContent);

@@ -116,17 +116,17 @@
             <div class="threshold-legend" aria-label="Water-level identification"><span class="normal"><i></i>Green · Normal</span><span class="alert"><i></i>Yellow · Warning</span><span class="critical"><i></i>Red · Evacuate</span></div>
             <div class="reading-label">Current reading</div>
             <div class="reading"><span id="levelValue">—</span><small> cm</small></div>
-            <div class="siren-control-panel" id="liveDataControlPanel" hidden>
-              <p id="liveDataControlMessage">Restart the dashboard's live water-level feed after an evacuation threshold is reached. The dashboard siren sounds automatically during evacuation.</p>
-              <div class="siren-control-actions">
-                <button class="small-btn" id="restartLiveDataBtn" type="button">Restart live water-level data</button>
+            <div class="live-data-control-panel" id="liveDataControlPanel" hidden>
+              <p id="liveDataControlMessage">Reconnect this dashboard to the ESP32's latest server reading. New readings arrive on the device's normal send interval; this does not reset the sensor, clear history, or control the dashboard siren.</p>
+              <div class="live-data-control-actions">
+                <button class="small-btn" id="restartLiveDataBtn" type="button">Reconnect live water-level feed</button>
               </div>
             </div>
             <div class="gauge-meta">
               <div class="meta-item"><div class="k">Trend</div><div class="v" id="trendVal">—</div></div>
               <div class="meta-item"><div class="k">Distance to next level</div><div class="v" id="distToCrit">Waiting for sensor data</div></div>
             </div>
-            <div class="device-line">Sensor unit: JSN-SR04T waterproof ultrasonic · ESP32 microcontroller · SIM800L GSM fallback · solar + battery powered</div>
+            <div class="device-line">JSN-SR04T → ESP32 → /api/telemetry → Firebase → dashboard. The sensor sends readings on its configured interval.</div>
           </section>
 
           <section class="card">
