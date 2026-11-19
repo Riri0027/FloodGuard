@@ -167,6 +167,13 @@
               <div class="channel" id="chanSMS"><div class="icon"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9l-4 3V7a1 1 0 0 1 1-1Z"/><path d="m8 10 3 2 3-2"/></svg></div><div class="name">Auto SMS Response</div><div class="state" id="chanSMSState">idle</div></div>
               <div class="channel" id="chanSiren"><div class="siren-ring" id="sirenRing"></div><div class="name">On-site Siren</div><div class="state" id="chanSirenState">idle</div></div>
             </div>
+            <div class="siren-control-panel" id="sirenControlPanel" hidden>
+              <p id="sirenControlMessage">Siren controls are available during a confirmed evacuation.</p>
+              <div class="siren-control-actions">
+                <button class="small-btn" id="restartSirenBtn" type="button">Restart siren</button>
+                <button class="small-btn siren-off-btn" id="turnOffSirenBtn" type="button">Turn siren off</button>
+              </div>
+            </div>
           </section>
 
           <section class="card">

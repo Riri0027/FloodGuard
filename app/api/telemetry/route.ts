@@ -79,8 +79,16 @@ export async function POST(request: NextRequest) {
       const alert: Record<string, unknown> = { ...oldAlert, status: nextStatus, changedAt: changed ? now : oldAlert.changedAt ?? now, candidateStatus: candidate, candidateReadings };
       if (changed && nextStatus !== 'normal') alert.pendingNotification = { id: requestId, status: nextStatus, levelCm: Number(levelCm.toFixed(1)), createdAt: now, state: 'queued', attempts: 0, ...(nextStatus === 'watch' && trend ? { riseRateCmPerMin: Number(trend.slopeCmPerMin.toFixed(2)), estimatedLeadTimeMinutes: runtimeConfig.upstreamLeadTimeMinutes } : {}) };
       if (nextStatus === 'normal') delete alert.pendingNotification;
-      const sirenActive = nextStatus === 'evacuate';
-      return { ...old, source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV: Number.isFinite(Number(payload.batteryV)) ? Number(payload.batteryV) : null, signal: typeof payload.signal === 'string' ? payload.signal.slice(0, 40) : 'Unknown', isOnline: true, updatedAt: now, health: { status: 'online', checkedAt: now, lastSeenAt: now }, alert, ...(isUpstreamDevice ? { earlyWarning: { enabled: true, trend: trend ? { slopeCmPerMin: Number(trend.slopeCmPerMin.toFixed(2)), samples: trend.samples, measuredAt: now } : null, watchThresholdCm: runtimeConfig.upstreamWatchCm, minimumRiseRateCmPerMin: runtimeConfig.upstreamRiseRateCmPerMin, estimatedLeadTimeMinutes: runtimeConfig.upstreamLeadTimeMinutes } } : {}), siren: { active: sirenActive, expiresAt: sirenActive ? now + runtimeConfig.sirenDurationMs : now } };
+      const oldSirenControl = old.sirenControl ?? {};
+      const sirenMode = nextStatus === 'evacuate' && oldSirenControl.mode === 'off' ? 'off' : 'auto';
+      const sirenCommandPending = Boolean(oldSirenControl.commandId) && oldSirenControl.deliveredCommandId !== oldSirenControl.commandId;
+      const sirenControl = {
+        ...oldSirenControl,
+        mode: sirenMode,
+        ...(sirenCommandPending ? { deliveredCommandId: oldSirenControl.commandId, deliveredAt: now } : {}),
+      };
+      const sirenActive = nextStatus === 'evacuate' && sirenMode !== 'off';
+      return { ...old, source: 'floodguard-telemetry-api', levelCm: Number(levelCm.toFixed(1)), batteryV: Number.isFinite(Number(payload.batteryV)) ? Number(payload.batteryV) : null, signal: typeof payload.signal === 'string' ? payload.signal.slice(0, 40) : 'Unknown', isOnline: true, updatedAt: now, health: { status: 'online', checkedAt: now, lastSeenAt: now }, alert, sirenControl, ...(isUpstreamDevice ? { earlyWarning: { enabled: true, trend: trend ? { slopeCmPerMin: Number(trend.slopeCmPerMin.toFixed(2)), samples: trend.samples, measuredAt: now } : null, watchThresholdCm: runtimeConfig.upstreamWatchCm, minimumRiseRateCmPerMin: runtimeConfig.upstreamRiseRateCmPerMin, estimatedLeadTimeMinutes: runtimeConfig.upstreamLeadTimeMinutes } } : {}), siren: { active: sirenActive, expiresAt: sirenActive ? now + runtimeConfig.sirenDurationMs : now } };
     });
     const current = result.snapshot.val() as Record<string, any>;
     await Promise.all([

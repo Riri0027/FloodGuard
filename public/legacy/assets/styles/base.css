@@ -461,6 +461,11 @@ tbody tr.fade-in{animation:fadeIn .4s ease;}
 .channel.active .state{color:var(--water-bright);}
 .siren-ring{width:14px; height:14px; border-radius:50%; margin:0 auto 6px; background:var(--ink-2);}
 .siren-ring.on{background:var(--crit); box-shadow:0 0 0 0 rgba(232,86,63,0.6); animation:pulse 1s infinite;}
+.siren-control-panel{margin-top:14px; padding:12px; border:1px solid rgba(232,86,63,0.4); border-radius:10px; background:rgba(232,86,63,0.08);}
+.siren-control-panel[hidden]{display:none;}
+.siren-control-panel p{margin:0 0 10px; color:var(--ink-1); font-size:0.76rem; line-height:1.5;}
+.siren-control-actions{display:flex; flex-wrap:wrap; gap:8px;}
+.siren-control-actions .siren-off-btn{border-color:rgba(232,86,63,0.5); color:#ff9b8c;}
 @keyframes pulse{
   0%{box-shadow:0 0 0 0 rgba(232,86,63,0.55);}
   70%{box-shadow:0 0 0 14px rgba(232,86,63,0);}

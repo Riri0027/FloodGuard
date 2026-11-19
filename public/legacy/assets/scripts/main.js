@@ -14,6 +14,9 @@
   const state = stateApi.state;
   const $ = stateApi.$;
   let LIVE_READING_TIMEOUT_MS = 5 * 60 * 1000;
+  let latestDeviceReading = null;
+  let sirenControlRequestInProgress = false;
+  let pendingSirenCommandId = null;
   const SENSOR_HISTORY_STORAGE_KEY = 'floodguard.sensor-history.FG-001.v1';
   const MAX_HISTORY_RECORDS = 40;
   let stopRealtimeTelemetry = null;
@@ -437,6 +440,7 @@
     $('sensorLastReading').textContent = '—';
     state.liveTelemetryActive = false;
     $('levelValue').textContent = '—';
+    renderSirenControls(latestDeviceReading, false);
     logic.updateMeta(state.level);
     ui.drawTube();
     ui.drawChartOn($('trendChart'));
@@ -484,6 +488,69 @@
     }
   }
 
+  function renderSirenControls(reading, deviceOnline) {
+    const panel = $('sirenControlPanel');
+    const restartButton = $('restartSirenBtn');
+    const offButton = $('turnOffSirenBtn');
+    const message = $('sirenControlMessage');
+    if (!panel || !restartButton || !offButton || !message) return;
+
+    panel.hidden = !state.currentUser || !latestDeviceReading || latestDeviceReading.alert?.status !== 'evacuate';
+    if (panel.hidden) return;
+
+    const control = reading && reading.sirenControl || {};
+    if (pendingSirenCommandId && control.commandId === pendingSirenCommandId && control.deliveredCommandId === pendingSirenCommandId) {
+      pendingSirenCommandId = null;
+    }
+    const commandPending = Boolean(control.commandId) && control.deliveredCommandId !== control.commandId;
+    restartButton.disabled = !deviceOnline || sirenControlRequestInProgress;
+    offButton.disabled = !deviceOnline || sirenControlRequestInProgress || control.mode === 'off';
+
+    if (!deviceOnline) {
+      message.textContent = 'ESP32 is offline. Siren commands cannot be delivered until it reconnects.';
+    } else if (pendingSirenCommandId || commandPending) {
+      message.textContent = 'Command queued. Waiting for the ESP32 to send its next valid sensor reading.';
+    } else if (control.mode === 'off') {
+      message.textContent = 'Siren off command sent to the ESP32. The evacuation alert remains active; verify the siren on site.';
+    } else if (reading && reading.siren && reading.siren.active) {
+      message.textContent = 'Evacuation alert active and the server reports the siren is sounding. Verify it on site.';
+    } else {
+      message.textContent = 'Evacuation alert active. Restart the siren if it is not sounding at the site.';
+    }
+  }
+
+  async function sendSirenControl(action) {
+    if (!state.currentUser || latestDeviceReading?.alert?.status !== 'evacuate') return;
+    if (action === 'off' && !window.confirm('Turn off the on-site siren while the evacuation alert remains active? Confirm the area is safe and maintain official evacuation instructions.')) return;
+
+    sirenControlRequestInProgress = true;
+    renderSirenControls(latestDeviceReading, state.liveTelemetryActive);
+    $('sirenControlMessage').textContent = 'Sending command to FloodGuard server…';
+    try {
+      const firebase = await firebaseServices();
+      const user = firebase.auth.currentUser;
+      if (!user) throw new Error('Your session has expired. Sign in again.');
+      const response = await fetch('/api/siren-control', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${await user.getIdToken()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Siren command was rejected.');
+      pendingSirenCommandId = result.commandId;
+      $('sirenControlMessage').textContent = result.message;
+    } catch (error) {
+      $('sirenControlMessage').textContent = error.message || 'Unable to send siren command.';
+      ui.toast($('sirenControlMessage').textContent);
+    } finally {
+      sirenControlRequestInProgress = false;
+      renderSirenControls(latestDeviceReading, state.liveTelemetryActive);
+    }
+  }
+
   async function startRealtimeTelemetry() {
     if (stopRealtimeTelemetry) return;
 
@@ -520,6 +587,7 @@
 
       stopRealtimeTelemetry = firebase.onValue(deviceRef, (snapshot) => {
         const reading = snapshot.val();
+        latestDeviceReading = reading;
         const level = Number(reading && reading.levelCm);
 
         if (!reading || reading.levelCm == null || !Number.isFinite(level) || reading.source !== 'floodguard-telemetry-api') {
@@ -538,6 +606,7 @@
         const signal = typeof reading.signal === 'string' && reading.signal.trim() ? reading.signal.trim() : 'Unknown';
         const healthStatus = realtimeHealthStatus(reading, timestamp);
         const online = healthStatus === 'online';
+        renderSirenControls(reading, online);
         const sirenActive = Boolean(reading.siren && reading.siren.active && Number(reading.siren.expiresAt) > Date.now());
 
         const liveLevel = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
@@ -952,6 +1021,8 @@
 
     $('connectSensorBtn').addEventListener('click', () => connectToSensor());
     $('disconnectSensorBtn').addEventListener('click', disconnectFromSensor);
+    $('restartSirenBtn').addEventListener('click', () => sendSirenControl('restart'));
+    $('turnOffSirenBtn').addEventListener('click', () => sendSirenControl('off'));
 
     $('loginName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
     $('loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
@@ -1040,6 +1111,7 @@
         await firebase.signOut(firebase.auth);
         stopRealtimeDatabaseTelemetry();
         state.currentUser = null;
+        renderSirenControls(latestDeviceReading, false);
         $('appShell').classList.remove('active');
         $('loginScreen').style.display = 'flex';
         $('signupScreen').hidden = true;
