@@ -116,11 +116,10 @@
             <div class="threshold-legend" aria-label="Water-level identification"><span class="normal"><i></i>Green · Normal</span><span class="alert"><i></i>Yellow · Warning</span><span class="critical"><i></i>Red · Evacuate</span></div>
             <div class="reading-label">Current reading</div>
             <div class="reading"><span id="levelValue">—</span><small> cm</small></div>
-            <div class="siren-control-panel" id="sirenControlPanel" hidden>
-              <p id="sirenControlMessage">Siren controls are available during a confirmed evacuation.</p>
+            <div class="siren-control-panel" id="liveDataControlPanel" hidden>
+              <p id="liveDataControlMessage">Restart the dashboard's live water-level feed after an evacuation threshold is reached. The dashboard siren sounds automatically during evacuation.</p>
               <div class="siren-control-actions">
-                <button class="small-btn" id="restartSirenBtn" type="button">Restart siren</button>
-                <button class="small-btn siren-off-btn" id="turnOffSirenBtn" type="button">Turn siren off</button>
+                <button class="small-btn" id="restartLiveDataBtn" type="button">Restart live water-level data</button>
               </div>
             </div>
             <div class="gauge-meta">
@@ -172,7 +171,7 @@
             <div class="channel-grid">
               <div class="channel" id="chanDash"><div class="icon"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="12" rx="2"/><path d="M8 19h8"/><path d="M12 17v2"/></svg></div><div class="name">Web Dashboard</div><div class="state" id="chanDashState">idle</div></div>
               <div class="channel" id="chanSMS"><div class="icon"><svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9l-4 3V7a1 1 0 0 1 1-1Z"/><path d="m8 10 3 2 3-2"/></svg></div><div class="name">Auto SMS Response</div><div class="state" id="chanSMSState">idle</div></div>
-              <div class="channel" id="chanSiren"><div class="siren-ring" id="sirenRing"></div><div class="name">On-site Siren</div><div class="state" id="chanSirenState">idle</div></div>
+              <div class="channel" id="chanSiren"><div class="siren-ring" id="sirenRing"></div><div class="name">Dashboard Siren</div><div class="state" id="chanSirenState">idle</div></div>
             </div>
           </section>
 

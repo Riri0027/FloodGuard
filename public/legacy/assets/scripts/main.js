@@ -17,8 +17,7 @@
   let confirmedAlertStatus = 'normal';
   let LIVE_READING_TIMEOUT_MS = 5 * 60 * 1000;
   let latestDeviceReading = null;
-  let sirenControlRequestInProgress = false;
-  let pendingSirenCommandId = null;
+  let liveDataRestartInProgress = false;
   const SENSOR_HISTORY_STORAGE_KEY = 'floodguard.sensor-history.FG-001.v1';
   const MAX_HISTORY_RECORDS = 40;
   let stopRealtimeTelemetry = null;
@@ -445,7 +444,7 @@
     state.liveTelemetryActive = false;
     $('levelValue').textContent = '—';
     $('sensorLastReading').textContent = '—';
-    renderSirenControls(latestDeviceReading, false);
+    renderLiveDataControl();
     logic.updateMeta(state.level);
     ui.drawTube();
     ui.drawChartOn($('trendChart'));
@@ -483,7 +482,8 @@
           $('chanSMSState').textContent = 'unavailable · no server link';
           if (st.key === 'critical') {
             $('sirenRing').classList.add('on');
-            $('chanSirenState').textContent = 'browser alarm only';
+            $('chanSiren').classList.add('active');
+            $('chanSirenState').textContent = 'sounding in dashboard';
           }
         }
       }
@@ -500,66 +500,37 @@
     return config.THRESHOLDS.find((threshold) => threshold.key === key) || config.THRESHOLDS[0];
   }
 
-  function renderSirenControls(reading, deviceOnline) {
-    const panel = $('sirenControlPanel');
-    const restartButton = $('restartSirenBtn');
-    const offButton = $('turnOffSirenBtn');
-    const message = $('sirenControlMessage');
-    if (!panel || !restartButton || !offButton || !message) return;
+  function renderLiveDataControl() {
+    const panel = $('liveDataControlPanel');
+    const message = $('liveDataControlMessage');
+    const restartButton = $('restartLiveDataBtn');
+    if (!panel || !restartButton || !message) return;
 
     panel.hidden = !state.currentUser || !latestDeviceReading || latestDeviceReading.alert?.status !== 'evacuate';
     if (panel.hidden) return;
 
-    const control = reading && reading.sirenControl || {};
-    if (pendingSirenCommandId && control.commandId === pendingSirenCommandId && control.deliveredCommandId === pendingSirenCommandId) {
-      pendingSirenCommandId = null;
-    }
-    const commandPending = Boolean(control.commandId) && control.deliveredCommandId !== control.commandId;
-    restartButton.disabled = !deviceOnline || sirenControlRequestInProgress;
-    offButton.disabled = !deviceOnline || sirenControlRequestInProgress || control.mode === 'off';
-
-    if (!deviceOnline) {
-      message.textContent = 'ESP32 is offline. Siren commands cannot be delivered until it reconnects.';
-    } else if (pendingSirenCommandId || commandPending) {
-      message.textContent = 'Command queued. Waiting for the ESP32 to send its next valid sensor reading.';
-    } else if (control.mode === 'off') {
-      message.textContent = 'Siren off command sent to the ESP32. The evacuation alert remains active; verify the siren on site.';
-    } else if (reading && reading.siren && reading.siren.active) {
-      message.textContent = 'Evacuation alert active and the server reports the siren is sounding. Verify it on site.';
-    } else {
-      message.textContent = 'Evacuation alert active. Restart the siren if it is not sounding at the site.';
-    }
+    restartButton.disabled = sensorConnectionInProgress || liveDataRestartInProgress;
   }
 
-  async function sendSirenControl(action) {
-    if (!state.currentUser || latestDeviceReading?.alert?.status !== 'evacuate') return;
-    if (action === 'off' && !window.confirm('Turn off the on-site siren while the evacuation alert remains active? Confirm the area is safe and maintain official evacuation instructions.')) return;
+  async function restartLiveWaterLevelData() {
+    const button = $('restartLiveDataBtn');
+    const message = $('liveDataControlMessage');
+    if (!button || !message || button.disabled) return;
 
-    sirenControlRequestInProgress = true;
-    renderSirenControls(latestDeviceReading, state.liveTelemetryActive);
-    $('sirenControlMessage').textContent = 'Sending command to FloodGuard server…';
+    liveDataRestartInProgress = true;
+    button.disabled = true;
+    message.textContent = 'Restarting the dashboard live water-level feed…';
     try {
-      const firebase = await firebaseServices();
-      const user = firebase.auth.currentUser;
-      if (!user) throw new Error('Your session has expired. Sign in again.');
-      const response = await fetch('/api/siren-control', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${await user.getIdToken()}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Siren command was rejected.');
-      pendingSirenCommandId = result.commandId;
-      $('sirenControlMessage').textContent = result.message;
+      stopRealtimeDatabaseTelemetry();
+      await startRealtimeTelemetry();
+      if (!stopRealtimeTelemetry) throw new Error('Live telemetry subscription was not created.');
+      message.textContent = 'Live water-level feed restarted. The dashboard siren remains automatic during evacuation.';
     } catch (error) {
-      $('sirenControlMessage').textContent = error.message || 'Unable to send siren command.';
-      ui.toast($('sirenControlMessage').textContent);
+      message.textContent = 'Unable to restart the live water-level feed. Check the dashboard connection.';
+      ui.toast(message.textContent);
     } finally {
-      sirenControlRequestInProgress = false;
-      renderSirenControls(latestDeviceReading, state.liveTelemetryActive);
+      liveDataRestartInProgress = false;
+      renderLiveDataControl();
     }
   }
 
@@ -621,7 +592,7 @@
         const healthStatus = realtimeHealthStatus(reading, timestamp);
         const online = healthStatus === 'online';
         if (!online) {
-          renderSirenControls(reading, false);
+          renderLiveDataControl();
           showWaitingForLiveData();
           setSensorConnectionState(false, {
             label: 'No fresh sensor reading',
@@ -632,15 +603,13 @@
           });
           return;
         }
-        const sirenActive = Boolean(reading.siren && reading.siren.active && Number(reading.siren.expiresAt) > Date.now());
-
         const liveLevel = Math.min(config.TUBE_MAX_CM, Math.max(0, level));
         state.hasVerifiedLiveReading = true;
         state.level = liveLevel;
         state.lastTelemetryAt = timestamp;
         state.liveTelemetryActive = online;
         state.realtimeTelemetryActive = true;
-        renderSirenControls(reading, online);
+        renderLiveDataControl();
 
         recordSensorReading(timestamp, liveLevel);
 
@@ -667,10 +636,11 @@
         const remoteAlertActive = reading.alert && reading.alert.status && reading.alert.status !== 'normal';
         $('chanSMS').classList.toggle('active', Boolean(remoteAlertActive));
         $('chanSMSState').textContent = remoteAlertActive ? 'server-managed' : 'idle';
-        $('sirenRing').classList.toggle('on', sirenActive);
-        $('chanSiren').classList.toggle('active', sirenActive);
-        $('chanSirenState').textContent = sirenActive ? 'physical siren active' : 'idle';
-        logic.setCriticalAlarm(sirenActive);
+        const dashboardSirenActive = confirmedAlertStatus === 'evacuate';
+        $('sirenRing').classList.toggle('on', dashboardSirenActive);
+        $('chanSiren').classList.toggle('active', dashboardSirenActive);
+        $('chanSirenState').textContent = dashboardSirenActive ? 'sounding in dashboard' : 'idle';
+        logic.setCriticalAlarm(confirmedAlertStatus === 'evacuate');
         if (state.currentUser) ui.renderDecisionSupport();
       }, (error) => {
         console.error('Realtime Database listener failed:', error);
@@ -1047,8 +1017,7 @@
 
     $('connectSensorBtn').addEventListener('click', () => connectToSensor());
     $('disconnectSensorBtn').addEventListener('click', disconnectFromSensor);
-    $('restartSirenBtn').addEventListener('click', () => sendSirenControl('restart'));
-    $('turnOffSirenBtn').addEventListener('click', () => sendSirenControl('off'));
+    $('restartLiveDataBtn').addEventListener('click', restartLiveWaterLevelData);
 
     $('loginName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
     $('loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
@@ -1138,7 +1107,7 @@
         stopRealtimeDatabaseTelemetry();
         state.currentUser = null;
         confirmedAlertStatus = 'normal';
-        renderSirenControls(latestDeviceReading, false);
+        renderLiveDataControl();
         $('appShell').classList.remove('active');
         $('loginScreen').style.display = 'flex';
         $('signupScreen').hidden = true;
